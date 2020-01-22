@@ -44,6 +44,17 @@ class Wire(object):
         'l': 'q', 'L': 'Q'
     }
 
+    # wire type & # of repeat
+    _T_FMT = re.compile(
+        r"^(?:({0})|({1}))(\d*)".format(
+            '|'.join(FIELD_WIRE_TYPE.keys()),
+            '|'.join(FIELD_ALIAS.keys())
+        )
+    )
+
+    # Group 1: required/repeated/packed repeated, 2: nested struct begin
+    _T_PREFIX = re.compile(r'^([\*\+#]?)(\[?)')
+
     # The maximum length of a negative vint encoded in 2's complement (in bits)
     VINT_MAX_BITS = 64
 
@@ -82,13 +93,8 @@ class Wire(object):
 
         #----------------------------------------------------------------------
 
-        t_fmt = re.compile(
-            r"^(?:({0})|({1}))(\d*)".format(
-                '|'.join(self.__class__.FIELD_WIRE_TYPE.keys()),
-                '|'.join(self.__class__.FIELD_ALIAS.keys())
-            )
-        ) # wire type & # of repeat
-        t_prefix = re.compile(r'^([\*\+#]?)(\[?)') # 1: m/rf/prf 2: nested?
+        t_fmt = self.__class__._T_FMT
+        t_prefix = self.__class__._T_PREFIX
 
         ptr = 0
         # it seems that field id 0 is invalid
