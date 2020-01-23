@@ -58,8 +58,13 @@ class Wire(object):
     # The maximum length of a negative vint encoded in 2's complement (in bits)
     VINT_MAX_BITS = 64
 
-    def __init__(self, fmtstr, loglevel=logging.WARNING):
-        self._fmt = self._parse(fmtstr)
+    def __init__(self, fmt, loglevel=logging.WARNING):
+        if isinstance(fmt, str):
+            self._fmt = self._parse(fmt)
+            self._kv_fmt = False
+        else:
+            self._fmt = self._parse_kvfmt(fmt)
+            self._kv_fmt = True
         self.logger = logging.getLogger('minipb.Wire')
         self.loglevel = loglevel
 
@@ -72,10 +77,84 @@ class Wire(object):
         self._loglevel = level
         self.logger.setLevel(level)
 
+    def _parse_kvfmt(self, fmtlist):
+        """
+        Similar to _parse() but for key-value format lists.
+        """
+        t_fmt = self.__class__._T_FMT
+        t_prefix = self.__class__._T_PREFIX
+        parsed_list = []
+        field_id = 1
+
+        for entry in fmtlist:
+            name = entry[0]
+            fmt = entry[1]
+            parsed_field = {}
+            parsed_field['name'] = name
+            if isinstance(fmt, str):
+                ptr = 0
+                m_prefix = t_prefix.match(fmt)
+                if m_prefix:
+                    ptr += m_prefix.end()
+                    parsed_field['prefix'] = m_prefix.group(1)
+                    # check for optional nested structure start (required if the field is also repeated)
+                    if m_prefix.group(2) and len(entry) > 2:
+                        parsed_field['field_id'] = field_id
+                        parsed_field['field_type'] = 'a'
+                        parsed_field['subcontent'] = self._parse_kvfmt(entry[2])
+                        field_id += 1
+                        parsed_list.append(parsed_field)
+                        continue
+                    elif m_prefix.group(2):
+                        raise BadFormatString('Nested field type used without specifying field format.')
+                m_fmt = t_fmt.match(fmt[ptr:])
+                if m_fmt:
+                    ptr += m_fmt.end()
+                    resolved_fmt_char = None
+                    # fmt is an alias
+                    if m_fmt.group(2):
+                        resolved_fmt_char = m_fmt.group(2)
+                        parsed_field['field_type'] = self.__class__\
+                            .FIELD_ALIAS[m_fmt.group(2)]
+                    # fmt is an actual field type
+                    elif m_fmt.group(1):
+                        resolved_fmt_char = m_fmt.group(1)
+                        parsed_field['field_type'] = m_fmt.group(1)
+                    parsed_field['field_id'] = field_id
+                    # only skip type (`x') is allowed for copying in key-value mode
+                    if m_fmt.group(3) and resolved_fmt_char == 'x':
+                        repeats = int(m_fmt.group(3))
+                        parsed_field['repeat'] = repeats
+                        field_id += repeats
+                    elif m_fmt.group(3):
+                        raise BadFormatString('Field type copying is not allowed in key-value format list.')
+                    else:
+                        field_id += 1
+                else:
+                    raise BadFormatString('Invalid type for field "{0}"'.format(name))
+                if len(fmt) != ptr:
+                    self.logger.warning('Extra content found after the type string of %s.', name)
+            else:
+                # Hard-code the empty prefix because we don't support copying
+                parsed_field['prefix'] = ''
+                parsed_field['field_id'] = field_id
+                parsed_field['field_type'] = 'a'
+                parsed_field['subcontent'] = self._parse_kvfmt(fmt)
+                field_id += 1
+            parsed_list.append(parsed_field)
+        return parsed_list
+
     def _parse(self, fmtstr):
         """
         Parse format string to something more machine readable.
         Called internally inside the class.
+        Format of parsed format list:
+            - field_id: The id (index) of the field.
+            - field_type: Type of the field. (see the doc, FIELD_WIRE_TYPE and FIELD_ALIAS)
+            - prefix: Prefix of the field. (required, repeated, packed-repeated) (EXCLUDES nested structures)
+                      Needs to be an empty string when there's none.
+            - subcontent: Optional. Used for nested structures. (field_type must be `a' when this is defined)
+            - repeat: Optional. Copy this field specified number of times to consecutive indices.
         """
         def __match_brace(string, start_pos, pair='[]'):
             """Pairing brackets (used internally in _parse method)"""
@@ -140,7 +219,10 @@ class Wire(object):
                 elif m_fmt.group(1):
                     parsed['field_type'] = m_fmt.group(1)
 
+                # save field id
                 parsed['field_id'] = field_id
+
+                # check for type clones (e.g. `v3')
                 if m_fmt.group(3):
                     parsed['repeat'] = int(m_fmt.group(3))
                     field_id += int(m_fmt.group(3))
@@ -159,16 +241,21 @@ class Wire(object):
         return parsed_list
 
     def encode(self, *stuff):
-        """Encode given objects to binary wire format."""
-
-        # Tested:
-        #   types: T, a
-        #   nested_structure
-
-        result = self.encode_wire(stuff)
+        """
+        Encode given objects to binary wire format.
+        If the Wire object was created using the key-value format list,
+        the method accepts one dict object that contains all the objects
+        to be encoded.
+        Otherwise, the method accepts multiple objects (like Struct.pack())
+        and all objects will be encoded sequentially.
+        """
+        if self._kv_fmt:
+            result = self.encode_wire(stuff[0])
+        else:
+            result = self.encode_wire(stuff)
         return result.getvalue()
-        
-    def encode_wire(self, stuff, fmtable = None):
+
+    def encode_wire(self, stuff, fmtable=None):
         """
         Encode a list to binary wire using fmtable
         Returns a BytesIO object (not a str)
@@ -178,9 +265,13 @@ class Wire(object):
         if fmtable == None:
             fmtable = self._fmt
 
+        # Can be a index number or field name
         stuff_id = 0
         encoded = io.BytesIO()
         for fmt in fmtable:
+            if self._kv_fmt:
+                assert 'name' in fmt, 'Encoder is in key-value mode but name is undefined for this field'
+                stuff_id = fmt['name']
             field_id_start = fmt['field_id']
             field_type = fmt['field_type']
             repeat = fmt.get('repeat', 1)
@@ -218,7 +309,8 @@ class Wire(object):
 
                 # Empty optional field
                 if field_data == None:
-                    stuff_id += 1
+                    if not self._kv_fmt:
+                        stuff_id += 1
                     continue
 
                 # repeating field
@@ -245,8 +337,8 @@ class Wire(object):
                     encoded.write(
                         self.encode_field(field_type, field_data, subcontent)
                     )
-
-                stuff_id += 1
+                if not self._kv_fmt:
+                    stuff_id += 1
 
         encoded.seek(0)
         return encoded
@@ -359,7 +451,10 @@ class Wire(object):
         if not hasattr(data, 'read'):
             data = io.BytesIO(data)
 
-        return tuple(self.decode_wire(data))
+        if self._kv_fmt:
+            return dict(self.decode_wire(data))
+        else:
+            return tuple(self.decode_wire(data))
 
     def decode_header(self, data):
         """
@@ -482,10 +577,16 @@ class Wire(object):
         # nested structure
         if field_type == 'a' and subcontent:
             self.logger.debug('decode_field(): nested field begin')
-            field_decoded = tuple(self.decode_wire(
-                io.BytesIO(field_data['data']),
-                subcontent
-            ))
+            if self._kv_fmt:
+                field_decoded = dict(self.decode_wire(
+                    io.BytesIO(field_data['data']),
+                    subcontent
+                ))
+            else:
+                field_decoded = tuple(self.decode_wire(
+                    io.BytesIO(field_data['data']),
+                    subcontent
+                ))
             self.logger.debug('decode_field(): nested field end')
 
         # string, unsigned vint (2sc)
@@ -549,6 +650,10 @@ class Wire(object):
             field_prefix = fmt.get('prefix')
             subcontent = fmt.get('subcontent')
             repeat = fmt.get('repeat', 1)
+
+            # sanity check
+            if self._kv_fmt:
+                assert repeat == 1 or field_type == 'x', 'Refuse to do type copying on non-skip field in key-value mode.'
 
             for field_id in range(field_id_start, field_id_start + repeat):
                 self.logger.debug(
@@ -622,7 +727,10 @@ class Wire(object):
                     else:
                         field_decoded = None
 
-                yield field_decoded
+                if self._kv_fmt:
+                    yield fmt['name'], field_decoded
+                else:
+                    yield field_decoded
 
 
 class RawWire(Wire):

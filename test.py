@@ -34,5 +34,59 @@ class TestMiniPB(unittest.TestCase):
         fields = (-1, 1, 1.0, -12345678900, 1234567890, 3.141592653589793)
         self.assertEqual(minipb.encode('iIfqQd', *fields), expected_pb)
         self.assertEqual(minipb.decode('iIfqQd', expected_pb), fields)
+
+    def test_kvfmt_single(self):
+        expected_pb = b'\x08\x96\x01'
+        raw_obj = {'value': 150}
+        schema = (('value', 'V'),)
+        w = minipb.Wire(schema)
+        self.assertEqual(w.encode(raw_obj), expected_pb)
+        self.assertEqual(w.decode(expected_pb), raw_obj)
+
+    def test_kvfmt_complex(self):
+        expected_pb = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x72\x69\x6e\x67\x10\xf8\x06'
+        raw_obj = {
+            'number': 123,
+            'string': 'test',
+            'nested': {
+                'str2': 'string',
+                'num2': 888,
+            }
+        }
+        schema = (
+            ('number', 'V'),
+            ('string', 'U'),
+            ('nested', (('str2', 'U'),
+                        ('num2', 'V'),)),
+        )
+        w = minipb.Wire(schema)
+        self.assertEqual(w.encode(raw_obj), expected_pb)
+        self.assertEqual(w.decode(expected_pb), raw_obj)
+
+    def test_kvfmt_very_complex(self):
+        expected_pb = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x72\x69\x6e\x67\x10\xf8\x06\x1a\x13\x0a\x0e\x61\x6e\x6f\x74\x68\x65\x72\x5f\x73\x74\x72\x69\x6e\x67\x10\xb9\x60'
+        raw_obj = {
+            'number': 123,
+            'string': 'test',
+            'nested': (
+                {
+                    'str2': 'string',
+                    'num2': 888,
+                }, {
+                    'str2': 'another_string',
+                    'num2': 12345,
+                },
+            ),
+        }
+        schema = (
+            ('number', 'V'),
+            ('string', 'U'),
+            ('nested', '+[', (('str2', 'U'),
+                              ('num2', 'V'),)),
+        )
+        w = minipb.Wire(schema)
+        self.assertEqual(w.encode(raw_obj), expected_pb)
+        self.assertEqual(w.decode(expected_pb), raw_obj)
+
 if __name__ == '__main__':
     unittest.main()
