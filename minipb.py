@@ -21,6 +21,7 @@ import re
 import struct
 from collections import namedtuple
 import io
+import sys
 
 __all__ = [
     'BadFormatString', 'CodecError',
@@ -30,6 +31,14 @@ __all__ = [
 
 class BadFormatString(Exception): pass
 class CodecError(Exception): pass
+
+# MicroPython re hack
+if sys.implementation.name == 'micropython':
+    def _get_length_of_match(m):
+        return len(m.group(0))
+else:
+    def _get_length_of_match(m):
+        return m.end()
 
 class Wire(object):
     # Field types
@@ -95,7 +104,7 @@ class Wire(object):
                 ptr = 0
                 m_prefix = t_prefix.match(fmt)
                 if m_prefix:
-                    ptr += m_prefix.end()
+                    ptr += _get_length_of_match(m_prefix)
                     parsed_field['prefix'] = m_prefix.group(1)
                     # check for optional nested structure start (required if the field is also repeated)
                     if m_prefix.group(2) and len(entry) > 2:
@@ -109,7 +118,7 @@ class Wire(object):
                         raise BadFormatString('Nested field type used without specifying field format.')
                 m_fmt = t_fmt.match(fmt[ptr:])
                 if m_fmt:
-                    ptr += m_fmt.end()
+                    ptr += _get_length_of_match(m_fmt)
                     resolved_fmt_char = None
                     # fmt is an alias
                     if m_fmt.group(2):
@@ -185,7 +194,7 @@ class Wire(object):
             parsed = {}
             m_prefix = t_prefix.match(fmtstr[ptr:])
             if m_prefix:
-                ptr += m_prefix.end()
+                ptr += _get_length_of_match(m_prefix)
                 parsed['prefix'] = m_prefix.group(1)
 
                 # check if we have a nested structure
@@ -209,7 +218,7 @@ class Wire(object):
                     continue
             m_fmt = t_fmt.match(fmtstr[ptr:])
             if m_fmt:
-                ptr += m_fmt.end()
+                ptr += _get_length_of_match(m_fmt)
 
                 # fmt is an alias
                 if m_fmt.group(2):
@@ -391,7 +400,8 @@ class Wire(object):
         Encode a header
         Called internally in encode_wire() function
         """
-        return struct.pack('B', ((f_id << 3) | f_type) & 255)
+        hdr = ((f_id << 3) | f_type) & 0xff
+        return hdr.to_bytes(1, 'little')
 
     def vint_zigzagify(self, number):
         """
@@ -461,7 +471,7 @@ class Wire(object):
         Decode field header.
         Called internally in decode() method
         """
-        ord_data = struct.unpack('B', data)[0]
+        ord_data = data[0]
         f_type = ord_data & 7
         f_id = ord_data >> 3
         return f_type, f_id
@@ -474,7 +484,7 @@ class Wire(object):
         ctr = 0
         result = 0
         while 1:
-            tmp = struct.unpack('B', buf.read(1))[0]
+            tmp = buf.read(1)[0]
             result |= (tmp & 0x7f) << (7 * ctr)
             if not (tmp >> 7): break
             ctr += 1
@@ -822,7 +832,6 @@ def decode_raw(data):
     return RawWire().decode(data)
 
 if __name__ == '__main__':
-    import sys
     import json
     logging.basicConfig()
     def usage():
