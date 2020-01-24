@@ -1,8 +1,0 @@
-MiniPB - A simple Protobuf wire en/decoder module
-
-Features:
-    - small, simple (compares to the original Google Protobuf)
-    - struct-like format string
-
-TODO:
-    - compile from .proto files
