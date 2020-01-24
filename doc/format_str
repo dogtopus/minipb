@@ -3,8 +3,10 @@ synopsis:
 types:
     i sfixed32
     I fixed32
-    l sfixed64
-    L fixed64
+    q sfixed64
+    Q fixed64
+    l sfixed32 (alias of 'i')
+    L sfixed32 (alias of 'I')
     f float
     d double
     a bytes

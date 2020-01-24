@@ -50,7 +50,7 @@ class Wire(object):
     # Field aliases
     FIELD_ALIAS = {
         'v': 'z', 'V': 'T',
-        'l': 'q', 'L': 'Q'
+        'l': 'i', 'L': 'I'
     }
 
     # wire type & # of repeat
