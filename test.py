@@ -2,6 +2,7 @@
 import unittest
 import minipb
 
+
 class TestMiniPB(unittest.TestCase):
     # the following data were taken from
     # https://developers.google.com/protocol-buffers/docs/encoding
@@ -87,6 +88,23 @@ class TestMiniPB(unittest.TestCase):
         w = minipb.Wire(schema)
         self.assertEqual(w.encode(raw_obj), expected_pb)
         self.assertEqual(w.decode(expected_pb), raw_obj)
+
+    def test_badbehavior_missing_field_kvfmt(self):
+        schema = (
+            ('field1', 'V'),
+            ('field2', 'V'),
+        )
+        w = minipb.Wire(schema)
+        with self.assertRaises(minipb.CodecError) as details:
+            w.encode({ 'field2': 123 })
+        self.assertIn('empty field field1 not padded with None', details.exception.args[0])
+
+    def test_badbehavior_missing_field_fmtstr(self):
+        w = minipb.Wire('V2')
+        with self.assertRaises(minipb.CodecError) as details:
+            w.encode(321)
+        self.assertIn('empty field 2 not padded with None', details.exception.args[0])
+
 
 if __name__ == '__main__':
     unittest.main()

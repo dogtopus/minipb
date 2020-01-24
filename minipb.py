@@ -287,9 +287,9 @@ class Wire(object):
             for field_id in range(field_id_start, field_id_start + repeat):
                 try:
                     field_data = stuff[stuff_id]
-                except IndexError:
+                except (IndexError, KeyError):
                     raise CodecError('Insufficient parameters '
-                                     '(empty fields not padded with None)')
+                                     '(empty field {0} not padded with None)'.format(fmt['name'] if self._kv_fmt else field_id))
                 prefix = fmt['prefix']
                 subcontent = fmt.get('subcontent')
                 wire_type = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
