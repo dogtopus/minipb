@@ -39,6 +39,7 @@ Unmount and reset when both files are installed to your MicroPython instance.
 
 ## Usage
 
-Format string documentation can be found under doc/format_str. The module's pydoc contains some useful information on the API too.
+Format string documentation can be found under the project [Wiki][wiki]. The module's pydoc contains some useful information on the API too.
 
 [mpylib]: https://github.com/micropython/micropython-lib
+[wiki]: https://github.com/dogtopus/minipb/wiki
