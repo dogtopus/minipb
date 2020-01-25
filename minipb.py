@@ -26,19 +26,23 @@ import sys
 __all__ = [
     'BadFormatString', 'CodecError',
     'Wire', 'RawWire',
-    'encode', 'decode'
+    'encode', 'decode', 'encode_raw', 'decode_raw',
 ]
+
+_IS_MPY = sys.implementation.name == 'micropython'
 
 class BadFormatString(Exception): pass
 class CodecError(Exception): pass
 
-# MicroPython re hack
-if sys.implementation.name == 'micropython':
+
+if _IS_MPY:
+    # MicroPython re hack
     def _get_length_of_match(m):
         return len(m.group(0))
 else:
     def _get_length_of_match(m):
         return m.end()
+
 
 class Wire(object):
     # Field types
@@ -64,18 +68,23 @@ class Wire(object):
     # Group 1: required/repeated/packed repeated, 2: nested struct begin
     _T_PREFIX = re.compile(r'^([\*\+#]?)(\[?)')
 
-    # The maximum length of a negative vint encoded in 2's complement (in bits)
+    # The default maximum length of a negative vint encoded in 2's complement (in bits)
     VINT_MAX_BITS = 64
 
     def __init__(self, fmt, loglevel=logging.WARNING):
+        self.logger = logging.getLogger('minipb.Wire')
+        self.loglevel = loglevel
+
+        self._vint_2sc_max_bits = 0
+        self._vint_2sc_mask = 0
+        self.vint_2sc_max_bits = self.__class__.VINT_MAX_BITS
+
         if isinstance(fmt, str):
             self._fmt = self._parse(fmt)
             self._kv_fmt = False
         else:
             self._fmt = self._parse_kvfmt(fmt)
             self._kv_fmt = True
-        self.logger = logging.getLogger('minipb.Wire')
-        self.loglevel = loglevel
 
     @property
     def loglevel(self):
@@ -85,6 +94,21 @@ class Wire(object):
     def loglevel(self, level):
         self._loglevel = level
         self.logger.setLevel(level)
+
+    @property
+    def vint_2sc_max_bits(self):
+        """
+        Get the maximum number of bits a signed 2's complement vint can contain.
+        """
+        return self._vint_2sc_max_bits
+
+    @vint_2sc_max_bits.setter
+    def vint_2sc_max_bits(self, bits):
+        """
+        Set the maximum number of bits a signed 2's complement vint can contain.
+        """
+        self._vint_2sc_max_bits = bits
+        self._vint_2sc_mask = (1 << bits) - 1
 
     def _parse_kvfmt(self, fmtlist):
         """
@@ -413,13 +437,12 @@ class Wire(object):
             num = ~num
         return num
 
-    def vint_2sc(self, number, bits=32):
+    def vint_2sc(self, number):
         """
         Perform Two's Complement encoding
         Called internally in encode_field() function
         """
-        bits = number.bit_length()
-        return number & (1 << (bits + 1)) - 1
+        return number & self._vint_2sc_mask
 
     def encode_vint(self, number):
         """
@@ -510,8 +533,8 @@ class Wire(object):
         Called internally in decode_field() function
         """
         assert number >= 0, 'number is less than 0'
-        if (number >> (self.__class__.VINT_MAX_BITS - 1)) & 1:
-            number = ~(~number & ((1 << self.__class__.VINT_MAX_BITS) - 1))
+        if (number >> (self._vint_2sc_max_bits - 1)) & 1:
+            number = ~(~number & self._vint_2sc_mask)
         return number
 
     def decode_str(self, buf):

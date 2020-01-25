@@ -48,6 +48,20 @@ class TestMiniPB(unittest.TestCase):
         self.assertEqual(minipb.encode('x15V', *fields), expected_pb)
         self.assertEqual(minipb.decode('x15V', expected_pb), fields)
 
+    def test_codec_vint_2sc_negative(self):
+        expected_pb = b'\x08\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01'
+        fields = (-1,)
+        self.assertEqual(minipb.encode('t', *fields), expected_pb)
+        self.assertEqual(minipb.decode('t', expected_pb), fields)
+
+    def test_codec_vint_2sc_negative_force_32(self):
+        expected_pb = b'\x08\xff\xff\xff\xff\x0f'
+        fields = (-1,)
+        w = minipb.Wire('t')
+        w.vint_2sc_max_bits = 32
+        self.assertEqual(w.encode(*fields), expected_pb)
+        self.assertEqual(w.decode(expected_pb), fields)
+
     def test_kvfmt_single(self):
         expected_pb = b'\x08\x96\x01'
         raw_obj = {'value': 150}
@@ -116,7 +130,6 @@ class TestMiniPB(unittest.TestCase):
         with self.assertRaises(minipb.CodecError) as details:
             w.encode(321)
         self.assertIn('empty field 2 not padded with None', details.exception.args[0])
-
 
 if __name__ == '__main__':
     unittest.main()
