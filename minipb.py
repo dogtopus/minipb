@@ -400,8 +400,8 @@ class Wire(object):
         Encode a header
         Called internally in encode_wire() function
         """
-        hdr = ((f_id << 3) | f_type) & 0xff
-        return hdr.to_bytes(1, 'little')
+        hdr = (f_id << 3) | f_type
+        return self.encode_vint(hdr)
 
     def vint_zigzagify(self, number):
         """
@@ -471,7 +471,7 @@ class Wire(object):
         Decode field header.
         Called internally in decode() method
         """
-        ord_data = data[0]
+        ord_data = self.decode_vint(data)
         f_type = ord_data & 7
         f_id = ord_data >> 3
         return f_type, f_id
@@ -530,22 +530,22 @@ class Wire(object):
         strings. (Mainly used for unpacking packed repeated fields)
         Called internally in decode_wire() function
         """
-        if type_override is not None:
-            assert id_override is not None,\
-                'Field ID must be specified in headerless mode'
-            buf_length = len(buf.getvalue())
+        assert (id_override is not None and type_override is not None) or\
+               (id_override is None and type_override is None),\
+            'Field ID and type must be both specified in headerless mode'
 
+        buf_length = len(buf.getvalue())
         while 1:
+            # EOS detection
+            if buf_length <= buf.tell():
+                break
+
             field = {}
             if type_override is not None:
-                if buf_length <= buf.tell():
-                    break
                 f_type = type_override
                 f_id = id_override
             else:
-                tmp = buf.read(1)
-                if not tmp: break
-                f_type, f_id = self.decode_header(tmp)
+                f_type, f_id = self.decode_header(buf)
 
             self.logger.debug(
                 "_break_down():field #%d pbtype #%d", f_id, f_type

@@ -4,7 +4,7 @@ import minipb
 
 
 class TestMiniPB(unittest.TestCase):
-    # the following data were taken from
+    # some of the following data were taken from
     # https://developers.google.com/protocol-buffers/docs/encoding
     def test_codec_vint(self):
         expected_pb = b'\x08\x96\x01'
@@ -35,6 +35,13 @@ class TestMiniPB(unittest.TestCase):
         fields = (-1, 1, 1.0, -12345678900, 1234567890, 3.141592653589793)
         self.assertEqual(minipb.encode('iIfqQd', *fields), expected_pb)
         self.assertEqual(minipb.decode('iIfqQd', expected_pb), fields)
+
+    def test_codec_vint_field(self):
+        expected_pb = b'\x80\x01\x01'
+        fields = (1,)
+        # Field 16 requires 2 bytes
+        self.assertEqual(minipb.encode('x15V', *fields), expected_pb)
+        self.assertEqual(minipb.decode('x15V', expected_pb), fields)
 
     def test_kvfmt_single(self):
         expected_pb = b'\x08\x96\x01'
