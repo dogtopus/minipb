@@ -699,10 +699,9 @@ class Wire(object):
                         self.logger.warning(
                             'Multiple data found in a packed-repeated field.'
                         )
-                        fields = tuple(_concat_fields(fields))
-                    assert fields[0]['wire_type'] == \
-                        self.__class__.FIELD_WIRE_TYPE['a'], \
-                        'Packed repeating field has wire type other than str'
+                        fields = (_concat_fields(fields), )
+                    if fields[0]['wire_type'] != self.__class__.FIELD_WIRE_TYPE['a']:
+                        raise CodecError('Packed repeating field {0} has wire type other than str'.format())
                     field = io.BytesIO(fields[0]['data'])
                     unpacked_field = self._break_down(
                         field,
@@ -714,20 +713,23 @@ class Wire(object):
                         for f in unpacked_field
                     )
 
-
                 # not a repeated field but has multiple data in one field
                 elif len(fields) > 1:
                     self.logger.warning(
                         'Multiple data found in a non-repeated field.'
                     )
+                    # Check if we are expecting a nested message
                     if subcontent is None:
+                        # Use the last found data
                         field_decoded = self.decode_field(
                             field_type, fields[-1], subcontent
                         )
                     else:
+                        # Concat all pieces of the nested message together and decode
                         field_decoded = self.decode_field(
                             field_type, _concat_fields(fields), subcontent
                         )
+
                 # not a repeated field
                 else:
                     if len(fields) != 0:

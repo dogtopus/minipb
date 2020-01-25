@@ -24,6 +24,11 @@ class TestMiniPB(unittest.TestCase):
         self.assertEqual(minipb.encode('x3#V', raw_obj), expected_pb)
         self.assertEqual(minipb.decode('x3#V', expected_pb)[0], raw_obj)
 
+    def test_codec_packed_repeated_field_double_decode(self):
+        expected_pb = b'\x22\x06\x03\x8e\x02\x9e\xa7\x05' * 2
+        raw_obj = (3, 270, 86942) * 2
+        self.assertEqual(minipb.decode('x3#V', expected_pb)[0], raw_obj)
+
     def test_codec_nested_message(self):
         expected_pb = b'\x1a\x03\x08\x96\x01'
         raw_obj = (150, )
