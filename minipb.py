@@ -24,24 +24,36 @@ import io
 import sys
 
 __all__ = [
-    'BadFormatString', 'CodecError',
+    'BadFormatString', 'CodecError', 'EndOfMessage',
     'Wire', 'RawWire',
     'encode', 'decode', 'encode_raw', 'decode_raw',
 ]
 
 _IS_MPY = sys.implementation.name == 'micropython'
 
-class BadFormatString(Exception):
+class BadFormatString(ValueError):
+    """
+    Malformed format string
+    """
     pass
 
 
 class CodecError(Exception):
+    """
+    Error during serializing or deserializing
+    """
     pass
 
 
 class EndOfMessage(EOFError):
+    """
+    Reached end of Protobuf message while deserializing fields.
+    """
     @property
     def partial(self):
+        """
+        True if the data was partially read.
+        """
         if len(self.args) > 0:
             return self.args[0]
         else:
@@ -506,6 +518,7 @@ class Wire(object):
     def decode_header(self, buf):
         """
         Decode field header.
+        Raises EndOfMessage if there is no or only partial data available.
         Called internally in decode() method
         """
         ord_data = self.decode_vint(buf)
@@ -516,7 +529,8 @@ class Wire(object):
     def decode_vint(self, buf):
         """
         Decode vint encoded integer.
-        Called internally in decode() method
+        Raises EndOfMessage if there is no or only partial data available.
+        Called internally in decode() method.
         """
         ctr = 0
         result = 0
@@ -559,8 +573,9 @@ class Wire(object):
 
     def decode_str(self, buf):
         """
-        Decode Protobuf variable length to Python string
-        Called internally in decode_field() function
+        Decode Protobuf variable length string to Python string.
+        Raises EndOfMessage if there is no or only partial data available.
+        Called internally in decode_field() function.
         """
         length = self.decode_vint(buf)
         result = buf.read(length)
