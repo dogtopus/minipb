@@ -31,8 +31,21 @@ __all__ = [
 
 _IS_MPY = sys.implementation.name == 'micropython'
 
-class BadFormatString(Exception): pass
-class CodecError(Exception): pass
+class BadFormatString(Exception):
+    pass
+
+
+class CodecError(Exception):
+    pass
+
+
+class EndOfMessage(EOFError):
+    @property
+    def partial(self):
+        if len(self.args) > 0:
+            return self.args[0]
+        else:
+            return False
 
 
 if _IS_MPY:
@@ -489,12 +502,12 @@ class Wire(object):
         else:
             return tuple(self.decode_wire(data))
 
-    def decode_header(self, data):
+    def decode_header(self, buf):
         """
         Decode field header.
         Called internally in decode() method
         """
-        ord_data = self.decode_vint(data)
+        ord_data = self.decode_vint(buf)
         f_type = ord_data & 7
         f_id = ord_data >> 3
         return f_type, f_id
@@ -506,10 +519,16 @@ class Wire(object):
         """
         ctr = 0
         result = 0
+        tmp = bytearray(1)
+        partial = False
         while 1:
-            tmp = buf.read(1)[0]
-            result |= (tmp & 0x7f) << (7 * ctr)
-            if not (tmp >> 7): break
+            count = buf.readinto(tmp)
+            if count == 0:
+                raise EndOfMessage(partial)
+            else:
+                partial = True
+            result |= (tmp[0] & 0x7f) << (7 * ctr)
+            if not (tmp[0] >> 7): break
             ctr += 1
         return result
 
@@ -543,7 +562,17 @@ class Wire(object):
         Called internally in decode_field() function
         """
         length = self.decode_vint(buf)
-        return buf.read(length)
+        result = buf.read(length)
+        if len(result) != length:
+            raise EndOfMessage(True)
+        return result
+
+    def decode_fixed(self, buf, length):
+        result = buf.read(length)
+        actual = len(result)
+        if actual != length:
+            raise EndOfMessage(False if actual == 0 else True)
+        return result
 
     def _break_down(self, buf, type_override=None, id_override=None):
         """
@@ -557,35 +586,40 @@ class Wire(object):
                (id_override is None and type_override is None),\
             'Field ID and type must be both specified in headerless mode'
 
-        buf_length = len(buf.getvalue())
         while 1:
-            # EOS detection
-            if buf_length <= buf.tell():
-                break
-
             field = {}
             if type_override is not None:
                 f_type = type_override
                 f_id = id_override
             else:
-                f_type, f_id = self.decode_header(buf)
+                # if no more data, stop and return
+                try:
+                    f_type, f_id = self.decode_header(buf)
+                except EOFError:
+                    break
 
             self.logger.debug(
                 "_break_down():field #%d pbtype #%d", f_id, f_type
             )
-            if f_type == 0: # vint
-                field['data'] = self.decode_vint(buf)
-            elif f_type == 1: # 64-bit
-                field['data'] = buf.read(8)
-            elif f_type == 2: # str
-                field['data'] = self.decode_str(buf)
-            elif f_type == 5: # 32-bit
-                field['data'] = buf.read(4)
-            else:
-                self.logger.warning(
-                    "_break_down():Ignore unknown type #%d", f_type
-                )
-                continue
+            try:
+                if f_type == 0: # vint
+                    field['data'] = self.decode_vint(buf)
+                elif f_type == 1: # 64-bit
+                    field['data'] = self.decode_fixed(buf, 8)
+                elif f_type == 2: # str
+                    field['data'] = self.decode_str(buf)
+                elif f_type == 5: # 32-bit
+                    field['data'] = self.decode_fixed(buf, 4)
+                else:
+                    self.logger.warning(
+                        "_break_down():Ignore unknown type #%d", f_type
+                    )
+                    continue
+            except EndOfMessage as e:
+                if type_override is None or e.partial:
+                    raise CodecError('Unexpected end of message while decoding field {0}'.format(f_id))
+                else:
+                    break
             field['id'] = f_id
             field['wire_type'] = f_type
             yield field
