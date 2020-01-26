@@ -131,5 +131,29 @@ class TestMiniPB(unittest.TestCase):
             w.encode(321)
         self.assertIn('empty field 2 not padded with None', details.exception.args[0])
 
+    def test_badbehavior_chopped_message_str(self):
+        expected_pb = b'\x12\x07\x74\x65\x73\x74\x69'
+        with self.assertRaises(minipb.CodecError) as details:
+            minipb.decode('xU', expected_pb)
+        self.assertIn('Unexpected end of message', details.exception.args[0])
+
+    def test_badbehavior_chopped_message_vint(self):
+        expected_pb = b'\x08\x96\x01'
+        with self.assertRaises(minipb.CodecError) as details:
+            minipb.decode('V', expected_pb)
+        self.assertIn('Unexpected end of message', details.exception.args[0])
+
+    def test_badbehavior_chopped_message_fixed32(self):
+        expected_pb = b'\r\xff\x00'
+        with self.assertRaises(minipb.CodecError) as details:
+            minipb.decode('I', expected_pb)
+        self.assertIn('Unexpected end of message', details.exception.args[0])
+
+    def test_badbehavior_chopped_message_fixed64(self):
+        expected_pb = b'\t\xff\x00'
+        with self.assertRaises(minipb.CodecError) as details:
+            minipb.decode('Q', expected_pb)
+        self.assertIn('Unexpected end of message', details.exception.args[0])
+
 if __name__ == '__main__':
     unittest.main()
