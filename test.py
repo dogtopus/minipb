@@ -138,7 +138,7 @@ class TestMiniPB(unittest.TestCase):
         self.assertIn('Unexpected end of message', details.exception.args[0])
 
     def test_badbehavior_chopped_message_vint(self):
-        expected_pb = b'\x08\x96\x01'
+        expected_pb = b'\x08\x96'
         with self.assertRaises(minipb.CodecError) as details:
             minipb.decode('V', expected_pb)
         self.assertIn('Unexpected end of message', details.exception.args[0])
