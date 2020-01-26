@@ -11,6 +11,28 @@ Mini Protobuf library in pure Python.
 - Supports both struct-like format string and ctypes-like structure representation (i.e. `Structure._field_`) as schema.
 - Support schema-less inspection of a given serialized message via the `RawWire` API.
 
+## Getting started
+
+```python
+import minipb
+
+# Create the Wire object with schema
+hello_world_msg = minipb.Wire([
+    ('msg', 'U') # 'U' means UTF-8 string.
+])
+
+# Encode a message
+encoded_msg = hello_world_msg.encode({
+    'msg': 'Hello world!'
+})
+# encoded_message == b'\n\x0cHello world!'
+
+# Decode a message
+decoded_msg = hello_world_msg.decode(encoded_msg)
+# decoded_msg == {'msg': 'Hello world!'}
+```
+
+Refer to the [Schema Representation][schema]
 ## Installation
 
 ### CPython, PyPy, etc.
@@ -22,6 +44,8 @@ pip install git+https://github.com/dogtopus/minipb
 ```
 
 ### MicroPython
+
+**NOTE**: Despite being lightweight compared to official Protobuf, the `minipb` module itself still uses around 15KB of RAM after loaded via `import`. Therefore it is recommended to use MiniPB on MicroPython instances with minimum of 24KB of memory available to the scripts. Instances with at least 48KB of free memory is recommended for more complex program logic.
 
 First you need `mpy-cross` that is compatible with the mpy version you are using.
 
@@ -37,7 +61,7 @@ You also need `logging` module from [micropython-lib][mpylib]. Compile it by usi
 mpy-cross micropython-lib/logging/logging.py -o /your/PYBFLASH/logging.mpy
 ```
 
-Unmount and reset when both files are installed to your MicroPython instance.
+Unmount PYBFLASH and reset the board when both files are installed to your MicroPython instance.
 
 ## Usage
 
@@ -45,3 +69,4 @@ Format string documentation can be found under the project [Wiki][wiki]. The mod
 
 [mpylib]: https://github.com/micropython/micropython-lib
 [wiki]: https://github.com/dogtopus/minipb/wiki
+[schema]: https://github.com/dogtopus/minipb/wiki/Schema-Representations
