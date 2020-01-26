@@ -2,6 +2,8 @@
 
 Mini Protobuf library in pure Python.
 
+![Python package](https://github.com/dogtopus/minipb/workflows/Python%20package/badge.svg)
+
 ## Features
 
 - Pure Python.
