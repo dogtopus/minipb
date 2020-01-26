@@ -326,7 +326,8 @@ class Wire(object):
                     field_data = stuff[stuff_id]
                 except (IndexError, KeyError):
                     raise CodecError('Insufficient parameters '
-                                     '(empty field {0} not padded with None)'.format(fmt['name'] if self._kv_fmt else field_id))
+                                     '(empty field {0} not padded with None)'.format(
+                                         fmt['name'] if self._kv_fmt else field_id))
                 prefix = fmt['prefix']
                 subcontent = fmt.get('subcontent')
                 wire_type = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
@@ -725,7 +726,7 @@ class Wire(object):
             for field_id in range(field_id_start, field_id_start + repeat):
                 self.logger.debug(
                     'decode_wire(): processing field #%d type %s',
-                        field_id, field_type
+                    field_id, field_type
                 )
 
                 # skip blank field
@@ -758,12 +759,14 @@ class Wire(object):
                         )
                         fields = (_concat_fields(fields), )
                     if fields[0]['wire_type'] != self.__class__.FIELD_WIRE_TYPE['a']:
-                        raise CodecError('Packed repeating field {0} has wire type other than str'.format())
+                        raise CodecError('Packed repeating field {0} has wire type other than str'.format(
+                            fmt['name'] if self._kv_fmt else field_id
+                        ))
                     field = io.BytesIO(fields[0]['data'])
                     unpacked_field = self._break_down(
                         field,
-                        type_override = self.__class__.FIELD_WIRE_TYPE[field_type],
-                        id_override = field_id
+                        type_override=self.__class__.FIELD_WIRE_TYPE[field_type],
+                        id_override=field_id
                     )
                     field_decoded = tuple(
                         self.decode_field(field_type, f, subcontent)
@@ -895,7 +898,7 @@ if __name__ == '__main__':
     logging.basicConfig()
     def usage():
         """Isn't that obvious?"""
-        print('Usage: {prog} <-d|-e> <fmtstr>'.format(prog = sys.argv[0]))
+        print('Usage: {prog} <-d|-e> <fmtstr>'.format(prog=sys.argv[0]))
         sys.exit(1)
 
     if len(sys.argv) < 3:
