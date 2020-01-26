@@ -30,9 +30,21 @@ encoded_msg = hello_world_msg.encode({
 # Decode a message
 decoded_msg = hello_world_msg.decode(encoded_msg)
 # decoded_msg == {'msg': 'Hello world!'}
+
+# Alternatively, use the format string
+hello_world_msg = minipb.Wire('U')
+
+# Encode a message
+encoded_msg = hello_world_msg.encode('Hello world!')
+# encoded_message == b'\n\x0cHello world!'
+
+# Decode a message
+decoded_msg = hello_world_msg.decode(encoded_msg)
+# decoded_msg == ('Hello world!',)
 ```
 
-Refer to the [Schema Representation][schema]
+Refer to the [Schema Representation][schema] for detailed explanation on schema formats accepted by MiniPB.
+
 ## Installation
 
 ### CPython, PyPy, etc.
