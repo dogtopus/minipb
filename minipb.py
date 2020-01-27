@@ -6,13 +6,13 @@
 #
 
 """
-minipb - A simple codec module for the binary wire format shipped with
-         Google's Protobuf protocol library
+minipb - Mini Protobuf library
 
-minipb uses format strings with struct-like syntax to encode/decode data
-between Python data types and Protobuf binary wire data.
+minipb uses simple schema representation to serialize and deserialize data
+between Python data types and Protobuf binary wire messages.
 Compare to original Protobuf, it is more light-weight, simple and therefore
-can be used in prototyping and reverse-engineering.
+can be used in resource limited systems, quick protocol prototyping and
+reverse-engineering of unknown Protobuf messages.
 """
 
 
