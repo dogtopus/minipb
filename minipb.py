@@ -15,13 +15,10 @@ can be used in resource limited systems, quick protocol prototyping and
 reverse-engineering of unknown Protobuf messages.
 """
 
-
 import logging
 import re
 import struct
-from collections import namedtuple
 import io
-import sys
 
 __all__ = [
     'BadFormatString', 'CodecError', 'EndOfMessage',
@@ -29,7 +26,7 @@ __all__ = [
     'encode', 'decode', 'encode_raw', 'decode_raw',
 ]
 
-_IS_MPY = sys.implementation.name == 'micropython'
+_IS_MPY = __import__('sys').implementation.name == 'micropython'
 
 class BadFormatString(ValueError):
     """
@@ -214,7 +211,7 @@ class Wire(object):
             - subcontent: Optional. Used for nested structures. (field_type must be `a' when this is defined)
             - repeat: Optional. Copy this field specified number of times to consecutive indices.
         """
-        def __match_brace(string, start_pos, pair='[]'):
+        def _match_brace(string, start_pos, pair='[]'):
             """Pairing brackets (used internally in _parse method)"""
             depth = 1
             if string[start_pos] != pair[0]:
@@ -248,7 +245,7 @@ class Wire(object):
 
                 # check if we have a nested structure
                 if m_prefix.group(2):
-                    brace_offset = __match_brace(fmtstr, ptr - 1)
+                    brace_offset = _match_brace(fmtstr, ptr - 1)
 
                     # bracket not match
                     if not brace_offset:
@@ -308,16 +305,16 @@ class Wire(object):
         and all objects will be encoded sequentially.
         """
         if self._kv_fmt:
-            result = self.encode_wire(stuff[0])
+            result = self._encode_wire(stuff[0])
         else:
-            result = self.encode_wire(stuff)
+            result = self._encode_wire(stuff)
         return result.getvalue()
 
-    def encode_wire(self, stuff, fmtable=None):
+    def _encode_wire(self, stuff, fmtable=None):
         """
         Encode a list to binary wire using fmtable
         Returns a BytesIO object (not a str)
-        Used by the encode() method, may also be invoked by encode_field()
+        Used by the encode() method, may also be invoked by _encode_field()
         to encode nested structures
         """
         if fmtable == None:
@@ -345,7 +342,7 @@ class Wire(object):
                 wire_type = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
 
                 self.logger.debug(
-                    'encode_wire(): Encoding field #%d type %s prefix %s',
+                    '_encode_wire(): Encoding field #%d type %s prefix %s',
                     field_id, field_type, prefix
                 )
 
@@ -355,12 +352,12 @@ class Wire(object):
 
                 # Packed repeating field always has a str-like header
                 if prefix == '#':
-                    encoded_header = self.encode_header(
+                    encoded_header = self._encode_header(
                         self.__class__.FIELD_WIRE_TYPE['a'],
                         field_id
                     )
                 else:
-                    encoded_header = self.encode_header(wire_type, field_id)
+                    encoded_header = self._encode_header(wire_type, field_id)
 
                 # Empty required field
                 if prefix == '*' and field_data == None:
@@ -377,24 +374,24 @@ class Wire(object):
                     for obj in field_data:
                         encoded.write(encoded_header)
                         encoded.write(
-                            self.encode_field(field_type, obj, subcontent)
+                            self._encode_field(field_type, obj, subcontent)
                         )
 
                 # packed repeating field
                 elif prefix == '#':
                     packed_body = io.BytesIO()
                     for obj in field_data:
-                        packed_body.write(self.encode_field(
+                        packed_body.write(self._encode_field(
                             field_type, obj, subcontent
                         ))
                     encoded.write(encoded_header)
-                    encoded.write(self.encode_str(packed_body.getvalue()))
+                    encoded.write(self._encode_str(packed_body.getvalue()))
 
                 # normal field
                 else:
                     encoded.write(encoded_header)
                     encoded.write(
-                        self.encode_field(field_type, field_data, subcontent)
+                        self._encode_field(field_type, field_data, subcontent)
                     )
                 if not self._kv_fmt:
                     stuff_id += 1
@@ -402,13 +399,13 @@ class Wire(object):
         encoded.seek(0)
         return encoded
 
-    def encode_field(self, field_type, field_data, subcontent=None):
+    def _encode_field(self, field_type, field_data, subcontent=None):
         """
         Encode a single field to binary wire format
-        Called internally in encode_wire() function
+        Called internally in _encode_wire() function
         """
         self.logger.debug(
-            'encode_field(): pytype %s values %s', 
+            '_encode_field(): pytype %s values %s',
             type(field_data).__name__, repr(field_data)
         )
 
@@ -416,26 +413,26 @@ class Wire(object):
 
         # nested
         if field_type == 'a' and subcontent:
-            field_encoded = self.encode_str(
-                self.encode_wire(field_data, subcontent).read()
+            field_encoded = self._encode_str(
+                self._encode_wire(field_data, subcontent).read()
             )
         # bytes
         elif field_type == 'a':
-            field_encoded = self.encode_str(field_data)
+            field_encoded = self._encode_str(field_data)
 
         # strings
         elif field_type == 'U':
-            field_encoded = self.encode_str(field_data.encode('utf-8'))
+            field_encoded = self._encode_str(field_data.encode('utf-8'))
 
         # vint family (signed, unsigned and boolean)
         elif field_type in 'Ttzb':
             if field_type == 't':
-                field_data = self.vint_2sc(field_data)
+                field_data = self._vint_signedto2sc(field_data)
             elif field_type == 'z':
-                field_data = self.vint_zigzagify(field_data)
+                field_data = self._vint_zigzagify(field_data)
             elif field_type == 'b':
                 field_data = int(field_data)
-            field_encoded = self.encode_vint(field_data)
+            field_encoded = self._encode_vint(field_data)
 
         # fixed numerical value
         elif field_type in 'iIqQfd':
@@ -445,40 +442,40 @@ class Wire(object):
 
         return field_encoded
 
-    def encode_header(self, f_type, f_id):
+    def _encode_header(self, f_type, f_id):
         """
         Encode a header
-        Called internally in encode_wire() function
+        Called internally in _encode_wire() function
         """
         hdr = (f_id << 3) | f_type
-        return self.encode_vint(hdr)
+        return self._encode_vint(hdr)
 
     @staticmethod
-    def vint_zigzagify(number):
+    def _vint_zigzagify(number):
         """
         Perform zigzag encoding
-        Called internally in encode_field() function
+        Called internally in _encode_field() function
         """
         num = number << 1
         if number < 0:
             num = ~num
         return num
 
-    def vint_2sc(self, number):
+    def _vint_signedto2sc(self, number):
         """
         Perform Two's Complement encoding
-        Called internally in encode_field() function
+        Called internally in _encode_field() function
         """
         return number & self._vint_2sc_mask
 
     @staticmethod
-    def encode_vint(number):
+    def _encode_vint(number):
         """
         Encode a number to vint (Wire Type 0).
         Numbers can only be signed or unsigned. Any number less than 0 must
         be processed either using zigzag or 2's complement (2sc) before
         passing to this function.
-        Called internally in encode_field() function
+        Called internally in _encode_field() function
         """
 
         assert number >= 0, 'number is less than 0'
@@ -492,13 +489,13 @@ class Wire(object):
             result.append(0x80 | tmp)
         return bytes(result)
 
-    def encode_str(self, string):
+    def _encode_str(self, string):
         """
         Encode a string/binary stream into protobuf variable length by
         appending a special header containing the length of the string.
-        Called internally in encode_field() function
+        Called internally in _encode_field() function
         """
-        result = self.encode_vint(len(string))
+        result = self._encode_vint(len(string))
         result += string
         return result
 
@@ -513,23 +510,23 @@ class Wire(object):
             data = io.BytesIO(data)
 
         if self._kv_fmt:
-            return dict(self.decode_wire(data))
+            return dict(self._decode_wire(data))
         else:
-            return tuple(self.decode_wire(data))
+            return tuple(self._decode_wire(data))
 
-    def decode_header(self, buf):
+    def _decode_header(self, buf):
         """
         Decode field header.
         Raises EndOfMessage if there is no or only partial data available.
         Called internally in decode() method
         """
-        ord_data = self.decode_vint(buf)
+        ord_data = self._decode_vint(buf)
         f_type = ord_data & 7
         f_id = ord_data >> 3
         return f_type, f_id
 
     @staticmethod
-    def decode_vint(buf):
+    def _decode_vint(buf):
         """
         Decode vint encoded integer.
         Raises EndOfMessage if there is no or only partial data available.
@@ -551,10 +548,10 @@ class Wire(object):
         return result
 
     @staticmethod
-    def vint_dezigzagify(number):
+    def _vint_dezigzagify(number):
         """
         Convert zigzag encoded integer to its original form.
-        Called internally in decode_field() function
+        Called internally in _decode_field() function
         """
 
         assert number >= 0, 'number is less than 0'
@@ -564,31 +561,31 @@ class Wire(object):
             num = ~num
         return num
 
-    def vint_2sctosigned(self, number):
+    def _vint_2sctosigned(self, number):
         """
         Decode Two's Complement encoded integer (which were treated by the
         'shallow' decoder as unsigned vint earlier) to normal signed integer
-        Called internally in decode_field() function
+        Called internally in _decode_field() function
         """
         assert number >= 0, 'number is less than 0'
         if (number >> (self._vint_2sc_max_bits - 1)) & 1:
             number = ~(~number & self._vint_2sc_mask)
         return number
 
-    def decode_str(self, buf):
+    def _decode_str(self, buf):
         """
         Decode Protobuf variable length string to Python string.
         Raises EndOfMessage if there is no or only partial data available.
-        Called internally in decode_field() function.
+        Called internally in _decode_field() function.
         """
-        length = self.decode_vint(buf)
+        length = self._decode_vint(buf)
         result = buf.read(length)
         if len(result) != length:
             raise EndOfMessage(True)
         return result
 
     @staticmethod
-    def decode_fixed(buf, length):
+    def _read_fixed(buf, length):
         """
         Read out a fixed type and report if the result is incomplete.
         Called internally in _break_down().
@@ -605,7 +602,7 @@ class Wire(object):
         further processing.
         Pass type_override and id_override to decompose headerless wire
         strings. (Mainly used for unpacking packed repeated fields)
-        Called internally in decode_wire() function
+        Called internally in _decode_wire() function
         """
         assert (id_override is not None and type_override is not None) or\
                (id_override is None and type_override is None),\
@@ -619,7 +616,7 @@ class Wire(object):
             else:
                 # if no more data, stop and return
                 try:
-                    f_type, f_id = self.decode_header(buf)
+                    f_type, f_id = self._decode_header(buf)
                 except EOFError:
                     break
 
@@ -628,13 +625,13 @@ class Wire(object):
             )
             try:
                 if f_type == 0: # vint
-                    field['data'] = self.decode_vint(buf)
+                    field['data'] = self._decode_vint(buf)
                 elif f_type == 1: # 64-bit
-                    field['data'] = self.decode_fixed(buf, 8)
+                    field['data'] = self._read_fixed(buf, 8)
                 elif f_type == 2: # str
-                    field['data'] = self.decode_str(buf)
+                    field['data'] = self._decode_str(buf)
                 elif f_type == 5: # 32-bit
-                    field['data'] = self.decode_fixed(buf, 4)
+                    field['data'] = self._read_fixed(buf, 4)
                 else:
                     self.logger.warning(
                         "_break_down():Ignore unknown type #%d", f_type
@@ -649,10 +646,10 @@ class Wire(object):
             field['wire_type'] = f_type
             yield field
 
-    def decode_field(self, field_type, field_data, subcontent=None):
+    def _decode_field(self, field_type, field_data, subcontent=None):
         """
         Decode a single field
-        Called internally in decode_wire() function
+        Called internally in _decode_wire() function
         """
         # check wire type
         wt_schema = self.__class__.FIELD_WIRE_TYPE[field_type]
@@ -668,18 +665,18 @@ class Wire(object):
         # the actual decoding process
         # nested structure
         if field_type == 'a' and subcontent:
-            self.logger.debug('decode_field(): nested field begin')
+            self.logger.debug('_decode_field(): nested field begin')
             if self._kv_fmt:
-                field_decoded = dict(self.decode_wire(
+                field_decoded = dict(self._decode_wire(
                     io.BytesIO(field_data['data']),
                     subcontent
                 ))
             else:
-                field_decoded = tuple(self.decode_wire(
+                field_decoded = tuple(self._decode_wire(
                     io.BytesIO(field_data['data']),
                     subcontent
                 ))
-            self.logger.debug('decode_field(): nested field end')
+            self.logger.debug('_decode_field(): nested field end')
 
         # string, unsigned vint (2sc)
         elif field_type in 'aT':
@@ -691,11 +688,11 @@ class Wire(object):
 
         # vint (zigzag)
         elif field_type == 'z':
-            field_decoded = self.vint_dezigzagify(field_data['data'])
+            field_decoded = self._vint_dezigzagify(field_data['data'])
 
         # signed 2sc
         elif field_type == 't':
-            field_decoded = self.vint_2sctosigned(field_data['data'])
+            field_decoded = self._vint_2sctosigned(field_data['data'])
 
         # fixed, float, double
         elif field_type in 'iIfdqQ':
@@ -712,10 +709,10 @@ class Wire(object):
 
         return field_decoded
 
-    def decode_wire(self, buf, subfmt=None):
+    def _decode_wire(self, buf, subfmt=None):
         """
         Apply schema, decode nested structure and fixed length data.
-        Used by the decode() method, may also be invoked by decode_field()
+        Used by the decode() method, may also be invoked by _decode_field()
         to decode nested structures
         """
         def _concat_fields(fields):
@@ -749,7 +746,7 @@ class Wire(object):
 
             for field_id in range(field_id_start, field_id_start + repeat):
                 self.logger.debug(
-                    'decode_wire(): processing field #%d type %s',
+                    '_decode_wire(): processing field #%d type %s',
                     field_id, field_type
                 )
 
@@ -771,7 +768,7 @@ class Wire(object):
                 # normal repeated fields
                 if field_prefix == '+':
                     field_decoded = tuple(
-                        self.decode_field(field_type, f, subcontent)
+                        self._decode_field(field_type, f, subcontent)
                         for f in fields
                     )
 
@@ -793,7 +790,7 @@ class Wire(object):
                         id_override=field_id
                     )
                     field_decoded = tuple(
-                        self.decode_field(field_type, f, subcontent)
+                        self._decode_field(field_type, f, subcontent)
                         for f in unpacked_field
                     )
 
@@ -805,19 +802,19 @@ class Wire(object):
                     # Check if we are expecting a nested message
                     if subcontent is None:
                         # Use the last found data
-                        field_decoded = self.decode_field(
+                        field_decoded = self._decode_field(
                             field_type, fields[-1], subcontent
                         )
                     else:
                         # Concat all pieces of the nested message together and decode
-                        field_decoded = self.decode_field(
+                        field_decoded = self._decode_field(
                             field_type, _concat_fields(fields), subcontent
                         )
 
                 # not a repeated field
                 else:
                     if len(fields) != 0:
-                        field_decoded = self.decode_field(
+                        field_decoded = self._decode_field(
                             field_type, fields[0], subcontent
                         )
                     else:
@@ -880,14 +877,14 @@ class RawWire(Wire):
             return data
 
         ENCODERS = {
-            0: self.encode_vint,
+            0: self._encode_vint,
             1: lambda n: _check_bytes_length(n, 8),
-            2: self.encode_str,
+            2: self._encode_str,
             5: lambda n: _check_bytes_length(n, 4)
         }
         encoded = io.BytesIO()
         for s in stuff:
-            encoded.write(self.encode_header(s['wire_type'], s['id']))
+            encoded.write(self._encode_header(s['wire_type'], s['id']))
             if s['wire_type'] not in ENCODERS.keys():
                 raise ValueError('Unknown type {}'.format(s['wire_type']))
             encoded.write(ENCODERS[s['wire_type']](s['data']))
@@ -918,6 +915,7 @@ def decode_raw(data):
     return RawWire().decode(data)
 
 if __name__ == '__main__':
+    import sys
     import json
     logging.basicConfig()
     def usage():
