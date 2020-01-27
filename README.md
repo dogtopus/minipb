@@ -16,6 +16,7 @@ Mini Protobuf library in pure Python.
 ```python
 import minipb
 
+
 # Create the Wire object with schema
 hello_world_msg = minipb.Wire([
     ('msg', 'U') # 'U' means UTF-8 string.
@@ -30,6 +31,7 @@ encoded_msg = hello_world_msg.encode({
 # Decode a message
 decoded_msg = hello_world_msg.decode(encoded_msg)
 # decoded_msg == {'msg': 'Hello world!'}
+
 
 # Alternatively, use the format string
 hello_world_msg = minipb.Wire('U')

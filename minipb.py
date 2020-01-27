@@ -6,7 +6,7 @@
 #
 
 """
-minipb - Mini Protobuf library
+Mini Protobuf library
 
 minipb uses simple schema representation to serialize and deserialize data
 between Python data types and Protobuf binary wire messages.
@@ -113,6 +113,9 @@ class Wire(object):
 
     @property
     def loglevel(self):
+        """
+        Log level.
+        """
         return self.logger.getEffectiveLevel()
 
     @loglevel.setter
@@ -123,15 +126,12 @@ class Wire(object):
     @property
     def vint_2sc_max_bits(self):
         """
-        Get the maximum number of bits a signed 2's complement vint can contain.
+        The maximum number of bits a signed 2's complement vint can contain.
         """
         return self._vint_2sc_max_bits
 
     @vint_2sc_max_bits.setter
     def vint_2sc_max_bits(self, bits):
-        """
-        Set the maximum number of bits a signed 2's complement vint can contain.
-        """
         self._vint_2sc_max_bits = bits
         self._vint_2sc_mask = (1 << bits) - 1
 
@@ -453,7 +453,8 @@ class Wire(object):
         hdr = (f_id << 3) | f_type
         return self.encode_vint(hdr)
 
-    def vint_zigzagify(self, number):
+    @staticmethod
+    def vint_zigzagify(number):
         """
         Perform zigzag encoding
         Called internally in encode_field() function
@@ -470,7 +471,8 @@ class Wire(object):
         """
         return number & self._vint_2sc_mask
 
-    def encode_vint(self, number):
+    @staticmethod
+    def encode_vint(number):
         """
         Encode a number to vint (Wire Type 0).
         Numbers can only be signed or unsigned. Any number less than 0 must
@@ -526,7 +528,8 @@ class Wire(object):
         f_id = ord_data >> 3
         return f_type, f_id
 
-    def decode_vint(self, buf):
+    @staticmethod
+    def decode_vint(buf):
         """
         Decode vint encoded integer.
         Raises EndOfMessage if there is no or only partial data available.
@@ -547,7 +550,8 @@ class Wire(object):
             ctr += 1
         return result
 
-    def vint_dezigzagify(self, number):
+    @staticmethod
+    def vint_dezigzagify(number):
         """
         Convert zigzag encoded integer to its original form.
         Called internally in decode_field() function
@@ -583,7 +587,12 @@ class Wire(object):
             raise EndOfMessage(True)
         return result
 
-    def decode_fixed(self, buf, length):
+    @staticmethod
+    def decode_fixed(buf, length):
+        """
+        Read out a fixed type and report if the result is incomplete.
+        Called internally in _break_down().
+        """
         result = buf.read(length)
         actual = len(result)
         if actual != length:
