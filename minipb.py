@@ -182,7 +182,7 @@ class Wire(object):
                         parsed_field['repeat'] = repeats
                         field_id += repeats
                     elif m_fmt.group(3):
-                        raise BadFormatString('Field type copying is not allowed in key-value format list.')
+                        raise BadFormatString('Field copying is not allowed in key-value format list.')
                     else:
                         field_id += 1
                 else:
@@ -742,7 +742,7 @@ class Wire(object):
 
             # sanity check
             if self._kv_fmt:
-                assert repeat == 1 or field_type == 'x', 'Refuse to do type copying on non-skip field in key-value mode.'
+                assert repeat == 1 or field_type == 'x', 'Refuse to do field copying on non-skip field in key-value mode.'
 
             for field_id in range(field_id_start, field_id_start + repeat):
                 self.logger.debug(

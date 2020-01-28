@@ -66,16 +66,23 @@ First you need `mpy-cross` that is compatible with the mpy version you are using
 Compile MiniPB by using
 
 ```sh
-mpy-cross -s minipb.py -O3 minipb/minipb.py -o /your/PYBFLASH/minipb.mpy
+mpy-cross -s minipb.py minipb/minipb.py -o /your/PYBFLASH/minipb.mpy
 ```
 
 You also need `logging` module from [micropython-lib][mpylib]. Compile it by using
 
 ```sh
-mpy-cross -s logging.py -O3 micropython-lib/logging/logging.py -o /your/PYBFLASH/logging.mpy
+mpy-cross -s logging.py micropython-lib/logging/logging.py -o /your/PYBFLASH/logging.mpy
 ```
 
 Unmount PYBFLASH and reset the board when both files are installed to your MicroPython instance.
+
+On production deployment, it is possible to run `mpy-cross` with `-O` set to higher than 0 to save more flash and RAM usage by sacrificing some debuggability. For example `-O3` saves about 1KB of flash and library RAM usage while disables assertion and removes source line numbers during traceback.
+
+```sh
+mpy-cross -s minipb.py -O3 minipb/minipb.py -o /your/PYBFLASH/minipb.mpy
+mpy-cross -s logging.py -O3 micropython-lib/logging/logging.py -o /your/PYBFLASH/logging.mpy
+```
 
 ## Usage
 
