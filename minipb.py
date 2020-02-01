@@ -780,7 +780,7 @@ class Wire(object):
                         )
                         fields = (_concat_fields(fields), )
                     if fields[0]['wire_type'] != self.__class__.FIELD_WIRE_TYPE['a']:
-                        raise CodecError('Packed repeating field {0} has wire type other than str'.format(
+                        raise CodecError('Packed repeated field {0} has wire type other than str'.format(
                             fmt['name'] if self._kv_fmt else field_id
                         ))
                     field = io.BytesIO(fields[0]['data'])
@@ -807,6 +807,12 @@ class Wire(object):
                         )
                     else:
                         # Concat all pieces of the nested message together and decode
+                        #
+                        # https://developers.google.com/protocol-buffers/docs/encoding#optional
+                        # For embedded message fields, the parser merges multiple instances of the same field,
+                        # as if with the `Message::MergeFrom` method – that is, all singular scalar fields in
+                        # the latter instance replace those in the former, singular embedded messages are merged,
+                        # and repeated fields are concatenated.
                         field_decoded = self._decode_field(
                             field_type, _concat_fields(fields), subcontent
                         )
