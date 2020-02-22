@@ -132,6 +132,13 @@ class Wire(object):
         self._vint_2sc_max_bits = bits
         self._vint_2sc_mask = (1 << bits) - 1
 
+    @property
+    def kvfmt(self):
+        """
+        True if the object works in key-value format list (kvfmt) mode.
+        """
+        return self._kv_fmt
+
     def _parse_kvfmt(self, fmtlist):
         """
         Similar to _parse() but for key-value format lists.
