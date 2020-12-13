@@ -1,3 +1,5 @@
+NOTE: This is deprecated in favor of the new Wiki. Check it out at https://github.com/dogtopus/minipb/wiki.
+
 synopsis:
     [prefix]<type>[suffix]...
 types:
