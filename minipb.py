@@ -2,7 +2,7 @@
 #
 # minipb.py
 #
-# SPDX-License-Identifier: LGPL-3.0+
+# SPDX-License-Identifier: BSD-3-Clause
 #
 
 """
