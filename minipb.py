@@ -67,15 +67,10 @@ else:
 
 class BytesView:
     def __init__(self, buf, length):
-        self.offset = buf.tell()
         self.buf = buf
         self.length = length
 
-    def tell(self):
-        return self.buf.tell()
-    
     def read(self, length=None):
-        assert self.buf.tell() == self.offset
         if not length:
             length = self.length
         readlen = min(length, self.length)
@@ -83,7 +78,6 @@ class BytesView:
             res = self.buf.read(readlen)
             actual = len(res)
             self.length -= actual
-            self.offset += actual
             return res
         else:
             return ""
