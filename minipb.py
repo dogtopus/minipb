@@ -80,7 +80,7 @@ class BytesView:
             self.length -= actual
             return res
         else:
-            return ""
+            return b""
 
 
 class Wire(object):
