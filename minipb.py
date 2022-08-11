@@ -685,7 +685,7 @@ class Wire(object):
             field['wire_type'] = f_type
             yield field
 
-    def _decode_field(self, field_type, field_data, subcontent=None):
+    def _decode_field(self, field_type, field_data, subcontent=None, path=()):
         """
         Decode a single field
         Called internally in _decode_wire() function
@@ -708,9 +708,10 @@ class Wire(object):
         if field_type == 'a' and subcontent:
             self.logger.debug('_decode_field(): nested field begin')
             if hasattr(fd_data, 'read'):
-                self._decode_wire(
+                field_decoded = self._decode_wire(
                     fd_data,
                     subcontent,
+                    path
                 )
             elif self._kv_fmt:
                 field_decoded = dict(self._decode_wire(
@@ -975,20 +976,23 @@ class IterWire(Wire):
             fmt = bisect_field_id(subfmt, field['id'])
             key = fmt.get('name') or fmt['field_id']
             mypath = path + (key,)
-            if 'subcontent' in fmt:
-                yield from self._decode_wire(field['data'], fmt['subcontent'], mypath)
-            else:
-                # packed repeated field
-                if fmt.get('prefix') == '#':
-                    if field['wire_type'] != self.__class__.FIELD_WIRE_TYPE['a']:
-                        raise CodecError(f'Packed repeated field {key} has wire type other than str')
-                    typ = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
-                    unpacked_field = self._break_down(field['data'], type_override=typ, id_override=fmt['field_id'])
-                    for f in unpacked_field:
-                        res = self._decode_field(fmt['field_type'], f, None)
+            # packed repeated field
+            if fmt.get('prefix') == '#':
+                if field['wire_type'] != self.__class__.FIELD_WIRE_TYPE['a']:
+                    raise CodecError(f'Packed repeated field {key} has wire type other than str')
+                typ = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
+                unpacked_field = self._break_down(field['data'], type_override=typ, id_override=fmt['field_id'])
+                for f in unpacked_field:
+                    res = self._decode_field(fmt['field_type'], f, fmt.get('subcontent'), mypath)
+                    if hasattr(res, 'send'): # generator
+                        yield from res
+                    else:
                         yield mypath, res
+            else:
+                res = self._decode_field(fmt['field_type'], field, fmt.get('subcontent'), mypath)
+                if hasattr(res, 'send'): # generator
+                    yield from res
                 else:
-                    res = self._decode_field(fmt['field_type'], field, None)
                     yield mypath, res
 
     def decode(self, data):
