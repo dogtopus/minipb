@@ -68,14 +68,26 @@ else:
 
 class BytesView:
     def __init__(self, buf, length):
-        self.buf = buf
         self.offset = buf.tell()
+        self.buf = buf
         self.length = length
-        # buf.seek(length, io.SEEK_CUR)
+
+    def tell(self):
+        return self.buf.tell()
     
-    def toBytes(self):
-        assert not hasattr(self.buf, 'tell') or self.offset == self.buf.tell()
-        return self.buf.read(self.length)
+    def read(self, length=None):
+        assert self.buf.tell() == self.offset
+        if not length:
+            length = self.length
+        readlen = min(length, self.length)
+        if readlen > 0:
+            res = self.buf.read(readlen)
+            actual = len(res)
+            self.length -= actual
+            self.offset += actual
+            return res
+        else:
+            return ""
 
 
 class Wire(object):
@@ -553,11 +565,10 @@ class Wire(object):
         """
         ctr = 0
         result = 0
-        tmp = bytearray(1)
         partial = False
         while 1:
-            count = buf.readinto(tmp)
-            if count == 0:
+            tmp = buf.read(1)
+            if len(tmp) == 0:
                 raise EndOfMessage(partial)
             else:
                 partial = True
@@ -624,7 +635,7 @@ class Wire(object):
             raise EndOfMessage(False if actual == 0 else True)
         return result
 
-    def _break_down(self, buf, type_override=None, id_override=None, read_str=True, end=None):
+    def _break_down(self, buf, type_override=None, id_override=None, read_str=True):
         """
         Helper method to 'break down' a wire string into a list for
         further processing.
@@ -636,7 +647,7 @@ class Wire(object):
                (id_override is None and type_override is None),\
             'Field ID and type must be both specified in headerless mode'
 
-        while end is None or buf.tell() < end:
+        while True:
             field = {}
             if type_override is not None:
                 f_type = type_override
@@ -691,14 +702,17 @@ class Wire(object):
         field_decoded = None
 
         fd_data = field_data['data']
-        if hasattr(fd_data, 'toBytes'):
-            fd_data = fd_data.toBytes()
 
         # the actual decoding process
         # nested structure
         if field_type == 'a' and subcontent:
             self.logger.debug('_decode_field(): nested field begin')
-            if self._kv_fmt:
+            if hasattr(fd_data, 'read'):
+                self._decode_wire(
+                    fd_data,
+                    subcontent,
+                )
+            elif self._kv_fmt:
                 field_decoded = dict(self._decode_wire(
                     io.BytesIO(fd_data),
                     subcontent
@@ -712,10 +726,14 @@ class Wire(object):
 
         # string, unsigned vint (2sc)
         elif field_type in 'aT':
+            if hasattr(fd_data, 'read'):
+                fd_data = fd_data.read()
             field_decoded = fd_data
 
         # unicode
         elif field_type in 'U':
+            if hasattr(fd_data, 'read'):
+                fd_data = fd_data.read()
             field_decoded = fd_data.decode('utf-8')
 
         # vint (zigzag)
@@ -952,22 +970,20 @@ class IterWire(Wire):
     This is useful for decoding larger than memory Protobuf values.
     '''
 
-    def _decode_wire(self, buf, subfmt, path=(), end=None):
-        for field in self._break_down(buf, read_str=False, end=end):
+    def _decode_wire(self, buf, subfmt, path=()):
+        for field in self._break_down(buf, read_str=False):
             fmt = bisect_field_id(subfmt, field['id'])
             key = fmt.get('name') or fmt['field_id']
             mypath = path + (key,)
             if 'subcontent' in fmt:
-                end = field['data'].offset + field['data'].length
-                yield from self._decode_wire(buf, fmt['subcontent'], mypath, end)
+                yield from self._decode_wire(field['data'], fmt['subcontent'], mypath)
             else:
                 # packed repeated field
                 if fmt.get('prefix') == '#':
                     if field['wire_type'] != self.__class__.FIELD_WIRE_TYPE['a']:
                         raise CodecError(f'Packed repeated field {key} has wire type other than str')
-                    end = field['data'].offset + field['data'].length
                     typ = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
-                    unpacked_field = self._break_down(buf, type_override=typ, id_override=fmt['field_id'], end=end)
+                    unpacked_field = self._break_down(field['data'], type_override=typ, id_override=fmt['field_id'])
                     for f in unpacked_field:
                         res = self._decode_field(fmt['field_type'], f, None)
                         yield mypath, res
