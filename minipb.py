@@ -19,7 +19,6 @@ import logging
 import re
 import struct
 import io
-import bisect
 
 __all__ = [
     'BadFormatString', 'CodecError', 'EndOfMessage',
