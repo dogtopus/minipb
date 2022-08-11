@@ -957,6 +957,8 @@ def bisect_field_id(a, x, lo=0, hi=None):
     else:
         return a[lo-1]
 
+tk_start = "__start__"
+tk_end = "__end__"
 
 class IterWire(Wire):
     '''
@@ -978,13 +980,17 @@ class IterWire(Wire):
                 for f in unpacked_field:
                     res = self._decode_field(fmt['field_type'], f, fmt.get('subcontent'), mypath)
                     if hasattr(res, 'send'): # generator
+                        yield mypath, tk_start
                         yield from res
+                        yield mypath, tk_end
                     else:
                         yield mypath, res
             else:
                 res = self._decode_field(fmt['field_type'], field, fmt.get('subcontent'), mypath)
                 if hasattr(res, 'send'): # generator
+                    yield mypath, tk_start
                     yield from res
+                    yield mypath, tk_end
                 else:
                     yield mypath, res
 
