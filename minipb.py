@@ -76,8 +76,7 @@ class BytesView:
         readlen = min(length, self.length)
         if readlen > 0:
             res = self.buf.read(readlen)
-            actual = len(res)
-            self.length -= actual
+            self.length -= len(res)
             return res
         else:
             return b""
@@ -942,18 +941,21 @@ class RawWire(Wire):
         return encoded.getvalue()
 
 
-def bisect_field_id(a, x, lo=0, hi=None):
-    if lo < 0:
-        raise ValueError('lo must be non-negative')
-    if hi is None:
-        hi = len(a)
+def bisect_field_id(a, x):
+    # without repeats this should work
+    mid = min(x-1, len(a)-1)
+    lo = 0
+    hi = len(a)
     while lo < hi:
+        res = a[mid]
+        fid = res['field_id']
+        if fid == x: return res
+        if fid < x: lo = mid+1
+        else: hi = mid
         mid = (lo+hi)//2
-        if a[mid]['field_id'] < x: lo = mid+1
-        elif a[mid]['field_id'] > x: hi = mid
-        else: return a[mid]
-    if a[lo]['field_id'] == x:
-        return a[lo]
+    res = a[lo]
+    if res['field_id'] == x:
+        return res
     else:
         return a[lo-1]
 
