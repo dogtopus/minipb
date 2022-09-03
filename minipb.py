@@ -69,6 +69,20 @@ class BytesView:
         self.buf = buf
         self.length = length
 
+    def tell(self):
+        return self.buf.tell()
+
+    def readinto(self, buf):
+        # we don't do partial reads
+        # but it's only used with a length of 1
+        # so it's fine
+        remaining = self.length-(self.buf.tell()-self.offset)
+        if remaining >= len(buf):
+            read = self.buf.readinto(buf)
+            return read
+        else:
+            return 0
+
     def read(self, length=None):
         if not length:
             length = self.length
@@ -531,10 +545,11 @@ class Wire(object):
         """
         ctr = 0
         result = 0
+        tmp = bytearray(1)
         partial = False
         while 1:
-            tmp = buf.read(1)
-            if len(tmp) == 0:
+            count = buf.readinto(tmp)
+            if count == 0:
                 raise EndOfMessage(partial)
             else:
                 partial = True
