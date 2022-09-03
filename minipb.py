@@ -15,7 +15,6 @@ can be used in resource limited systems, quick protocol prototyping and
 reverse-engineering of unknown Protobuf messages.
 """
 
-import logging
 import re
 import struct
 import io
@@ -109,10 +108,7 @@ class Wire(object):
     # The default maximum length of a negative vint encoded in 2's complement (in bits)
     VINT_MAX_BITS = 64
 
-    def __init__(self, fmt, loglevel=logging.WARNING):
-        self.logger = logging.getLogger('minipb.Wire')
-        self.loglevel = loglevel
-
+    def __init__(self, fmt):
         self._vint_2sc_max_bits = 0
         self._vint_2sc_mask = 0
         self.vint_2sc_max_bits = self.__class__.VINT_MAX_BITS
@@ -123,18 +119,6 @@ class Wire(object):
         else:
             self._fmt = self._parse_kvfmt(fmt)
             self._kv_fmt = True
-
-    @property
-    def loglevel(self):
-        """
-        Log level.
-        """
-        return self.logger.getEffectiveLevel()
-
-    @loglevel.setter
-    def loglevel(self, level):
-        self._loglevel = level
-        self.logger.setLevel(level)
 
     @property
     def vint_2sc_max_bits(self):
@@ -211,7 +195,7 @@ class Wire(object):
                 else:
                     raise BadFormatString('Invalid type for field "{0}"'.format(name))
                 if len(fmt) != ptr:
-                    self.logger.warning('Extra content found after the type string of %s.', name)
+                    print('Extra content found after the type string of %s.', name)
             else:
                 # Hard-code the empty prefix because we don't support copying
                 parsed_field['prefix'] = ''
@@ -364,11 +348,6 @@ class Wire(object):
                 subcontent = fmt.get('subcontent')
                 wire_type = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
 
-                self.logger.debug(
-                    '_encode_wire(): Encoding field #%d type %s prefix %s',
-                    field_id, field_type, prefix
-                )
-
                 # Skip blank field (placeholder)
                 if field_type == 'x':
                     continue
@@ -427,11 +406,6 @@ class Wire(object):
         Encode a single field to binary wire format
         Called internally in _encode_wire() function
         """
-        self.logger.debug(
-            '_encode_field(): pytype %s values %s',
-            type(field_data).__name__, repr(field_data)
-        )
-
         field_encoded = None
 
         # nested
@@ -651,9 +625,6 @@ class Wire(object):
                 except EOFError:
                     break
 
-            self.logger.debug(
-                "_break_down():field #%d pbtype #%d", f_id, f_type
-            )
             try:
                 if f_type == 0: # vint
                     field['data'] = self._decode_vint(buf)
@@ -664,7 +635,7 @@ class Wire(object):
                 elif f_type == 5: # 32-bit
                     field['data'] = self._read_fixed(buf, 4)
                 else:
-                    self.logger.warning(
+                    print(
                         "_break_down():Ignore unknown type #%d", f_type
                     )
                     continue
@@ -698,7 +669,6 @@ class Wire(object):
         # the actual decoding process
         # nested structure
         if field_type == 'a' and subcontent:
-            self.logger.debug('_decode_field(): nested field begin')
             if hasattr(fd_data, 'read'):
                 field_decoded = self._decode_wire(
                     fd_data,
@@ -715,7 +685,6 @@ class Wire(object):
                     io.BytesIO(fd_data),
                     subcontent
                 ))
-            self.logger.debug('_decode_field(): nested field end')
 
         # string, unsigned vint (2sc)
         elif field_type in 'aT':
@@ -788,10 +757,6 @@ class Wire(object):
                 assert repeat == 1 or field_type == 'x', 'Refuse to do field copying on non-skip field in key-value mode.'
 
             for field_id in range(field_id_start, field_id_start + repeat):
-                self.logger.debug(
-                    '_decode_wire(): processing field #%d type %s',
-                    field_id, field_type
-                )
 
                 # skip blank field
                 if field_type == 'x':
@@ -818,7 +783,7 @@ class Wire(object):
                 # packed repeated field
                 elif field_prefix == '#':
                     if len(fields) > 1:
-                        self.logger.warning(
+                        print(
                             'Multiple data found in a packed-repeated field.'
                         )
                         fields = (_concat_fields(fields), )
@@ -839,7 +804,7 @@ class Wire(object):
 
                 # not a repeated field but has multiple data in one field
                 elif len(fields) > 1:
-                    self.logger.warning(
+                    print(
                         'Multiple data found in a non-repeated field.'
                     )
                     # Check if we are expecting a nested message
@@ -881,9 +846,8 @@ class RawWire(Wire):
     to allow raw wire data generating/parsing without the need of a schema
     It is useful for analyzing Protobuf messages with an unknown schema
     '''
-    def __init__(self, loglevel=logging.WARNING):
-        self.logger = logging.getLogger('minipb.RawWire')
-        self.loglevel = loglevel
+    def __init__(self):
+        pass
 
     def decode(self, data):
         '''
@@ -976,7 +940,7 @@ class IterWire(Wire):
             # packed repeated field
             if fmt.get('prefix') == '#':
                 if field['wire_type'] != self.__class__.FIELD_WIRE_TYPE['a']:
-                    raise CodecError(f'Packed repeated field {key} has wire type other than str')
+                    raise CodecError('Packed repeated field {} has wire type other than str'.format(key))
                 typ = self.__class__.FIELD_WIRE_TYPE[fmt['field_type']]
                 unpacked_field = self._break_down(field['data'], type_override=typ, id_override=fmt['field_id'])
                 for f in unpacked_field:
@@ -1028,7 +992,6 @@ def decode_raw(data):
 if __name__ == '__main__':
     import sys
     import json
-    logging.basicConfig()
     def usage():
         """Isn't that obvious?"""
         print('Usage: {prog} <-d|-e> <fmtstr>'.format(prog=sys.argv[0]))
