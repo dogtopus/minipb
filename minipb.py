@@ -76,9 +76,10 @@ class BytesView:
         # we don't do partial reads
         # but it's only used with a length of 1
         # so it's fine
-        remaining = self.length-(self.buf.tell()-self.offset)
+        remaining = self.length
         if remaining >= len(buf):
             read = self.buf.readinto(buf)
+            self.length -= read
             return read
         else:
             return 0
