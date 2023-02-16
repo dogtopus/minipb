@@ -8,6 +8,7 @@ from typing import (
     Sequence,
     Dict,
     Any,
+    Literal,
     overload,
 )
 
@@ -40,7 +41,7 @@ class EndOfMessage(EOFError):
     def partial(self) -> bool: ...
 
 class Wire:
-    logger: logger.Logger
+    logger: logging.Logger
     def __init__(self, fmt: FormatSpec, loglevel: int = ...) -> None: ...
     @property
     def loglevel(self) -> int: ...
