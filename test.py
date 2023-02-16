@@ -2,6 +2,9 @@
 import unittest
 import minipb
 
+TEST_RAW_ENCODED = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x72\x69\x6e\x67\x10\xf8\x06\x1a\x13\x0a\x0e\x61\x6e\x6f\x74\x68\x65\x72\x5f\x73\x74\x72\x69\x6e\x67\x10\xb9\x60'
+
+TEST_RAW_DECODED = ({'data': 123, 'id': 1, 'wire_type': 0}, {'data': b'test', 'id': 2, 'wire_type': 2}, {'data': b'\n\x06string\x10\xf8\x06', 'id': 3, 'wire_type': 2}, {'data': b'\n\x0eanother_string\x10\xb9`', 'id': 3, 'wire_type': 2})
 
 class TestMiniPB(unittest.TestCase):
     # some of the following data were taken from
@@ -114,6 +117,14 @@ class TestMiniPB(unittest.TestCase):
         w = minipb.Wire(schema)
         self.assertEqual(w.encode(raw_obj), expected_pb)
         self.assertEqual(w.decode(expected_pb), raw_obj)
+
+    def test_raw_encode(self):
+        result = minipb.Wire.encode_raw(TEST_RAW_DECODED)
+        self.assertEqual(result, TEST_RAW_ENCODED)
+
+    def test_raw_decode(self):
+        result = minipb.Wire.decode_raw(TEST_RAW_ENCODED)
+        self.assertTupleEqual(result, TEST_RAW_DECODED)
 
     def test_badbehavior_missing_field_kvfmt(self):
         schema = (
