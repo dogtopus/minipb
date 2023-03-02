@@ -17,7 +17,7 @@ Mini Protobuf library in pure Python.
 ```python
 import minipb
 
-
+### Encode/Decode a message with the Wire object and Key-Value Schema
 # Create the Wire object with schema
 hello_world_msg = minipb.Wire([
     ('msg', 'U') # 'U' means UTF-8 string.
@@ -34,7 +34,7 @@ decoded_msg = hello_world_msg.decode(encoded_msg)
 # decoded_msg == {'msg': 'Hello world!'}
 
 
-# Alternatively, use the format string
+### Encode/Decode a message with the Wire object and Format String
 hello_world_msg = minipb.Wire('U')
 
 # Encode a message
@@ -44,6 +44,31 @@ encoded_msg = hello_world_msg.encode('Hello world!')
 # Decode a message
 decoded_msg = hello_world_msg.decode(encoded_msg)
 # decoded_msg == ('Hello world!',)
+
+
+### Encode/Decode a Message with schema defined via Fields
+@minipb.process_message_fields
+class HelloWorldMessage(minipb.Message):
+    msg = minipb.Field(1, minipb.TYPE_STRING)
+
+# Creating a Message instance
+#   Method 1: init with kwargs work!
+msg_obj = HelloWorldMessage(msg='Hello world!')
+
+#   Method 2: from_dict, iterates over all Field's declared in order on the class
+msg_obj = HelloWorldMessage.from_dict({'msg': 'Hello world!'})
+
+# Encode a message
+encoded_msg = msg_obj.encode()
+# encoded_message == b'\n\x0cHello world!'
+
+# Decode a message
+decoded_msg_obj = HelloWorldMessage.decode(encoded_msg)
+# decoded_msg == HelloWorldMessage(msg='Hello world!')
+
+decoded_dict = decoded_msg_obj.to_dict()
+# decoded_dict == {'msg': 'Hello world!'}
+
 ```
 
 Refer to the [Schema Representation][schema] for detailed explanation on schema formats accepted by MiniPB.
@@ -89,7 +114,7 @@ mpy-cross -s logging.py -O3 micropython-lib/logging/logging.py -o /your/PYBFLASH
 mpy-cross -s bisect.py -O3 micropython-lib/bisect/bisect.py -o /your/PYBFLASH/bisect.mpy
 ```
 
-## Usage
+## Usage - Format String and Key Value Schema
 
 Format string documentation can be found under the project [Wiki][wiki]. The module's pydoc contains some useful information on the API too.
 
@@ -97,3 +122,44 @@ Format string documentation can be found under the project [Wiki][wiki]. The mod
 [wiki]: https://github.com/dogtopus/minipb/wiki
 [schema]: https://github.com/dogtopus/minipb/wiki/Schema-Representations
 [mpydoc]: http://docs.micropython.org/en/latest/reference/packages.html
+
+## Usage - Message class
+Translating a proto into a Message class
+```protobuf
+    message Person {
+      required string name = 1; // *U
+      required int32 id = 2; // *t
+      optional string email = 3; // U
+
+      // enums are not supported natively in minipb. Use enums.IntEnum with a int field instead.
+      enum PhoneType {
+        MOBILE = 0;
+        HOME = 1;
+        WORK = 2;
+      }
+
+      message PhoneNumber { // [
+        required string number = 1; // *U
+        optional PhoneType type = 2 [default = HOME]; // t
+      } // ]
+
+      repeated PhoneNumber phone = 4; // +[*Ut]
+    }
+```
+
+```python
+from minipb import TYPE_STRING, TYPE_INT32, process_message_fields, Message, Field
+
+@process_message_fields
+class Person(Message):
+    name   = Field(1, TYPE_STRING, required=True)
+    id     = Field(2, TYPE_INT32, required=True)
+    email  = Field(3, TYPE_STRING)
+
+    @process_message_fields
+    class PhoneNumber(Message):
+        number = Field(1, TYPE_STRING, required=True)
+        type   = Field(2, TYPE_INT32)
+
+    phone  = Field(4, PhoneNumber, repeated=True)
+```

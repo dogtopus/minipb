@@ -15,6 +15,7 @@ can be used in resource limited systems, quick protocol prototyping and
 reverse-engineering of unknown Protobuf messages.
 """
 
+import collections
 import bisect
 import logging
 import re
@@ -22,6 +23,46 @@ import struct
 import io
 
 _IS_MPY = __import__('sys').implementation.name == 'micropython'
+
+# In order of https://protobuf.dev/programming-guides/proto3/
+TYPE_DOUBLE = 'd'
+TYPE_FLOAT = 'f'
+TYPE_INT32 = 't'
+TYPE_INT64 = 't'
+TYPE_UINT32 = 'T'
+TYPE_UINT64 = 'T'
+TYPE_SINT32 = 'z'
+TYPE_SINT64 = 'z'
+TYPE_FIXED32 = 'I'
+TYPE_FIXED64 = 'Q'
+TYPE_SFIXED32 = 'i'
+TYPE_SFIXED64 = 'q'
+TYPE_BOOL = 'b'
+TYPE_STRING = 'U'
+TYPE_BYTES = 'a'
+TYPE_EMPTY = 'x'
+
+_TYPE_VARINTS = ''.join([TYPE_INT32, TYPE_UINT32, TYPE_SINT32, TYPE_BOOL])
+_TYPE_FIXED_LEN = ''.join([TYPE_SFIXED32, TYPE_FIXED32, TYPE_FLOAT, TYPE_DOUBLE, TYPE_SFIXED64, TYPE_FIXED64])
+
+# Wire Types - https://protobuf.dev/programming-guides/encoding/#structure
+_WIRE_TYPE_VARINT = 0
+_WIRE_TYPE_I64 = 1
+_WIRE_TYPE_LEN = 2
+_WIRE_TYPE_I32 = 5
+
+TYPES = frozenset([
+    TYPE_DOUBLE, TYPE_FLOAT, TYPE_INT32, TYPE_INT64, TYPE_UINT32, TYPE_UINT64, TYPE_SINT32, TYPE_SINT64, TYPE_FIXED32, TYPE_FIXED64, TYPE_SFIXED32, TYPE_SFIXED64, TYPE_BOOL, TYPE_STRING, TYPE_BYTES, TYPE_EMPTY,
+    'v', 'V', 'l', 'L'
+])
+
+# MiniPB specific Prefixes
+PREFIX_REQUIRED = '*'
+PREFIX_REPEATED = '+'
+PREFIX_REPEATED_PACKED = '#'
+PREFIX_MESSAGE = '['
+
+SUFFIX_MESSAGE = ']'
 
 class BadFormatString(ValueError):
     """
@@ -60,6 +101,171 @@ else:
     def _get_length_of_match(m):
         return m.end()
 
+def _encode_vint(number):
+    """
+    Encode a number to vint (Wire Type 0).
+    Numbers can only be signed or unsigned. Any number less than 0 must
+    be processed either using zigzag or 2's complement (2sc) before
+    passing to this function.
+    Called internally in _encode_field() function
+    """
+
+    assert number >= 0, 'number is less than 0'
+    result = bytearray()
+    while 1:
+        tmp = number & 0x7f
+        number >>= 7
+        if number == 0:
+            result.append(tmp)
+            break
+        result.append(0x80 | tmp)
+    return bytes(result)
+
+def _decode_vint(buf):
+    """
+    Decode vint encoded integer.
+    Raises EndOfMessage if there is no or only partial data available.
+    Called internally in decode() method.
+    """
+    ctr = 0
+    result = 0
+    tmp = bytearray(1)
+    partial = False
+    while 1:
+        count = buf.readinto(tmp)
+        if count == 0:
+            raise EndOfMessage(partial)
+        else:
+            partial = True
+        result |= (tmp[0] & 0x7f) << (7 * ctr)
+        if not (tmp[0] >> 7): break
+        ctr += 1
+    return result
+
+_DEFAULT_VINT_2SC_MAX_BITS = 64
+_DEFAULT_VINT_2SC_MASK = (1 << _DEFAULT_VINT_2SC_MAX_BITS) - 1
+def _vint_signedto2sc(number, mask=_DEFAULT_VINT_2SC_MASK):
+    """
+    Perform Two's Complement encoding
+    Called internally in _encode_field() function
+    """
+    return number & mask
+
+
+def _vint_2sctosigned(number, max_bits=_DEFAULT_VINT_2SC_MAX_BITS, mask=_DEFAULT_VINT_2SC_MASK):
+    """
+    Decode Two's Complement encoded integer (which were treated by the
+    'shallow' decoder as unsigned vint earlier) to normal signed integer
+    Called internally in _decode_field() function
+    """
+    assert number >= 0, 'number is less than 0'
+    if (number >> (max_bits - 1)) & 1:
+        number = ~(~number & mask)
+    return number
+
+def _vint_zigzagify(number):
+    """
+    Perform zigzag encoding
+    Called internally in _encode_field() function
+    """
+    num = number << 1
+    if number < 0:
+        num = ~num
+    return num
+
+def _vint_dezigzagify(number):
+    """
+    Convert zigzag encoded integer to its original form.
+    Called internally in _decode_field() function
+    """
+
+    assert number >= 0, 'number is less than 0'
+    is_neg = number & 1
+    num = number >> 1
+    if is_neg:
+        num = ~num
+    return num
+
+def _encode_header(f_type, f_id):
+    """
+    Encode a header
+    Called internally in _encode_wire() function
+    """
+    hdr = (f_id << 3) | f_type
+    return _encode_vint(hdr)
+
+def _decode_header(buf):
+    """
+    Decode field header.
+    Raises EndOfMessage if there is no or only partial data available.
+    Called internally in decode() method
+    """
+    ord_data = _decode_vint(buf)
+    f_type = ord_data & 7
+    f_id = ord_data >> 3
+    return f_type, f_id
+
+
+def _encode_bytes(in_bytes):
+    """
+    Encode a string/binary stream into protobuf variable length by
+    appending a special header containing the length of the string.
+    Called internally in _encode_field() function
+    """
+    result = _encode_vint(len(in_bytes))
+    result += in_bytes
+    return result
+
+def _decode_bytes(buf):
+    """
+    Decode Protobuf variable length string to Python string.
+    Raises EndOfMessage if there is no or only partial data available.
+    Called internally in _decode_field() function.
+    """
+    length = _decode_vint(buf)
+    result = buf.read(length)
+    if len(result) != length:
+        raise EndOfMessage(True)
+    return result
+
+def _read_fixed(buf, length):
+    """
+    Read out a fixed type and report if the result is incomplete.
+    Called internally in _break_down().
+    """
+    result = buf.read(length)
+    actual = len(result)
+    if actual != length:
+        raise EndOfMessage(False if actual == 0 else True)
+    return result
+
+def _index_fields(decoded_raw):
+    """
+    Build an index for the fields decoded by _break_down().
+    Called internally in _decode_wire().
+    """
+    index = {}
+    for decoded in decoded_raw:
+        field_id = decoded['id']
+        if field_id not in index:
+            index[field_id] = []
+        index[field_id].append(decoded)
+    return index
+
+def _concat_fields(fields):
+    """
+    Concatenate 2 fields with the same wire type together.
+    Called internally in _decode_wire().
+    """
+    result_wire = io.BytesIO()
+    result = {'id': fields[0]['id'], 'wire_type': fields[0]['wire_type']}
+    for field in fields:
+        assert field['id'] == result['id'] and \
+            field['wire_type'] == result['wire_type'], \
+            'field id or wire_type mismatch'
+        result_wire.write(field['data'])
+    result['data'] = result_wire.getvalue()
+    return result
 
 class _OverlapCheck:
     '''
@@ -149,17 +355,35 @@ class _OverlapCheck:
 
 
 class Wire:
-    # Field types
+    # Field types - https://protobuf.dev/programming-guides/encoding/#structure
     _FIELD_WIRE_TYPE = {
-        'x': None,
-        'i': 5, 'I': 5, 'q': 1, 'Q': 1, 'f': 5, 'd': 1,
-        'a': 2, 'b': 0, 'z': 0, 't': 0, 'T': 0, 'U': 2,
+        # VARINT
+        TYPE_INT32: _WIRE_TYPE_VARINT,
+        TYPE_UINT32: _WIRE_TYPE_VARINT,
+        TYPE_SINT32: _WIRE_TYPE_VARINT,
+        TYPE_BOOL: _WIRE_TYPE_VARINT,
+
+        # I64
+        TYPE_FIXED64: _WIRE_TYPE_I64,
+        TYPE_SFIXED64: _WIRE_TYPE_I64,
+        TYPE_DOUBLE: _WIRE_TYPE_I64,
+
+        # LEN
+        TYPE_STRING: _WIRE_TYPE_LEN,
+        TYPE_BYTES: _WIRE_TYPE_LEN,
+
+        # I32
+        TYPE_FIXED32: _WIRE_TYPE_I32,
+        TYPE_SFIXED32: _WIRE_TYPE_I32,
+        TYPE_FLOAT: _WIRE_TYPE_I32,
+
+        TYPE_EMPTY: None
     }
     # Field aliases
     _FIELD_ALIAS = {
-        'v': 'z', 'V': 'T',
-        'l': 'i', 'L': 'I',
-        'u': 'U',
+        'v': TYPE_SINT32, 'V': TYPE_UINT32,
+        'l': TYPE_SFIXED32, 'L': TYPE_FIXED32,
+        'u': TYPE_STRING,
     }
 
     # wire type, # of repeat and field seek
@@ -247,7 +471,7 @@ class Wire:
                     # check for optional nested structure start (required if the field is also repeated)
                     if m_prefix.group(2) and len(entry) > 2:
                         parsed_field['field_id'] = field_id
-                        parsed_field['field_type'] = 'a'
+                        parsed_field['field_type'] = TYPE_BYTES
                         parsed_field['subcontent'] = self._parse_kvfmt(entry[2])
                         field_id += 1
                         overlap_check.add_field(parsed_list, parsed_field)
@@ -287,7 +511,7 @@ class Wire:
                 # Hard-code the empty prefix because we don't support copying
                 parsed_field['prefix'] = ''
                 parsed_field['field_id'] = field_id
-                parsed_field['field_type'] = 'a'
+                parsed_field['field_type'] = TYPE_BYTES
                 parsed_field['subcontent'] = self._parse_kvfmt(fmt)
                 field_id += 1
             overlap_check.add_field(parsed_list, parsed_field)
@@ -349,7 +573,7 @@ class Wire:
                         raise BadFormatString(
                             'Unmatched brace on position {0}'.format(ptr)
                         )
-                    parsed['field_type'] = 'a'
+                    parsed['field_type'] = TYPE_BYTES
                     parsed['subcontent'] = self._parse(
                         fmtstr[ptr:brace_offset]
                     )
@@ -419,7 +643,7 @@ class Wire:
         return result.getvalue()
 
     @classmethod
-    def encode_raw(self, stuff):
+    def encode_raw(cls, stuff):
         '''
         Encode the output of decode_raw() back to binary wire format
         '''
@@ -439,14 +663,14 @@ class Wire:
             return data
 
         ENCODERS = {
-            0: self._encode_vint,
+            0: _encode_vint,
             1: lambda n: _check_bytes_length(n, 8),
-            2: self._encode_str,
+            2: _encode_bytes,
             5: lambda n: _check_bytes_length(n, 4)
         }
         encoded = io.BytesIO()
         for s in stuff:
-            encoded.write(self._encode_header(s['wire_type'], s['id']))
+            encoded.write(_encode_header(s['wire_type'], s['id']))
             if s['wire_type'] not in ENCODERS.keys():
                 raise ValueError('Unknown type {}'.format(s['wire_type']))
             encoded.write(ENCODERS[s['wire_type']](s['data']))
@@ -494,20 +718,20 @@ class Wire:
                 #)
 
                 # Skip blank field (placeholder)
-                if field_type == 'x':
+                if field_type == TYPE_EMPTY:
                     continue
 
                 # Packed repeating field always has a str-like header
-                if prefix == '#':
-                    encoded_header = self._encode_header(
-                        self._FIELD_WIRE_TYPE['a'],
+                if prefix == PREFIX_REPEATED_PACKED:
+                    encoded_header = _encode_header(
+                        _WIRE_TYPE_LEN,
                         field_id
                     )
                 else:
-                    encoded_header = self._encode_header(wire_type, field_id)
+                    encoded_header = _encode_header(wire_type, field_id)
 
                 # Empty required field
-                if prefix == '*' and field_data == None:
+                if prefix == PREFIX_REQUIRED and field_data == None:
                     raise CodecError('Required field cannot be None.')
 
                 # Empty optional field
@@ -517,7 +741,7 @@ class Wire:
                     continue
 
                 # repeating field
-                if prefix == '+':
+                if prefix == PREFIX_REPEATED:
                     for obj in field_data:
                         encoded.write(encoded_header)
                         encoded.write(
@@ -525,14 +749,14 @@ class Wire:
                         )
 
                 # packed repeating field
-                elif prefix == '#':
+                elif prefix == PREFIX_REPEATED_PACKED:
                     packed_body = io.BytesIO()
                     for obj in field_data:
                         packed_body.write(self._encode_field(
                             field_type, obj, subcontent
                         ))
                     encoded.write(encoded_header)
-                    encoded.write(self._encode_str(packed_body.getvalue()))
+                    encoded.write(_encode_bytes(packed_body.getvalue()))
 
                 # normal field
                 else:
@@ -559,94 +783,36 @@ class Wire:
         field_encoded = None
 
         # nested
-        if field_type == 'a' and subcontent:
-            field_encoded = self._encode_str(
+        if field_type == TYPE_BYTES and subcontent:
+            field_encoded = _encode_bytes(
                 self._encode_wire(field_data, subcontent).read()
             )
         # bytes
-        elif field_type == 'a':
-            field_encoded = self._encode_str(field_data)
+        elif field_type == TYPE_BYTES:
+            field_encoded = _encode_bytes(field_data)
 
         # strings
-        elif field_type == 'U':
-            field_encoded = self._encode_str(field_data.encode('utf-8'))
+        elif field_type == TYPE_STRING:
+            field_encoded = _encode_bytes(field_data.encode('utf-8'))
 
         # vint family (signed, unsigned and boolean)
-        elif field_type in 'Ttzb':
-            if field_type == 't':
-                field_data = self._vint_signedto2sc(field_data)
-            elif field_type == 'z':
-                field_data = self._vint_zigzagify(field_data)
-            elif field_type == 'b':
+        elif field_type in _TYPE_VARINTS:
+            if field_type == TYPE_INT32:
+                field_data = _vint_signedto2sc(field_data, mask=self._vint_2sc_mask)
+            elif field_type == TYPE_SINT32:
+                field_data = _vint_zigzagify(field_data)
+            elif field_type == TYPE_BOOL:
                 field_data = int(field_data)
-            field_encoded = self._encode_vint(field_data)
+            field_encoded = _encode_vint(field_data)
 
         # fixed numerical value
-        elif field_type in 'iIqQfd':
+        elif field_type in _TYPE_FIXED_LEN:
             field_encoded = struct.pack(
                 '<{0}'.format(field_type), field_data
             )
 
         return field_encoded
 
-    @classmethod
-    def _encode_header(self, f_type, f_id):
-        """
-        Encode a header
-        Called internally in _encode_wire() function
-        """
-        hdr = (f_id << 3) | f_type
-        return self._encode_vint(hdr)
-
-    @staticmethod
-    def _vint_zigzagify(number):
-        """
-        Perform zigzag encoding
-        Called internally in _encode_field() function
-        """
-        num = number << 1
-        if number < 0:
-            num = ~num
-        return num
-
-    def _vint_signedto2sc(self, number):
-        """
-        Perform Two's Complement encoding
-        Called internally in _encode_field() function
-        """
-        return number & self._vint_2sc_mask
-
-    @staticmethod
-    def _encode_vint(number):
-        """
-        Encode a number to vint (Wire Type 0).
-        Numbers can only be signed or unsigned. Any number less than 0 must
-        be processed either using zigzag or 2's complement (2sc) before
-        passing to this function.
-        Called internally in _encode_field() function
-        """
-
-        assert number >= 0, 'number is less than 0'
-        result = bytearray()
-        while 1:
-            tmp = number & 0x7f
-            number >>= 7
-            if number == 0:
-                result.append(tmp)
-                break
-            result.append(0x80 | tmp)
-        return bytes(result)
-
-    @classmethod
-    def _encode_str(self, string):
-        """
-        Encode a string/binary stream into protobuf variable length by
-        appending a special header containing the length of the string.
-        Called internally in _encode_field() function
-        """
-        result = self._encode_vint(len(string))
-        result += string
-        return result
 
     def decode(self, data):
         """Decode given binary wire data to Python data types."""
@@ -664,7 +830,7 @@ class Wire:
             return tuple(self._decode_wire(data))
 
     @classmethod
-    def decode_raw(self, data):
+    def decode_raw(cls, data):
         '''
         Decode wire data to a list of dicts that contain raw wire data and types
         The dictionary contains 3 keys:
@@ -683,94 +849,12 @@ class Wire:
         if not hasattr(data, 'read'):
             data = io.BytesIO(data)
 
-        return tuple(self._break_down(data))
+        return tuple(cls._break_down(data))
+
+
 
     @classmethod
-    def _decode_header(self, buf):
-        """
-        Decode field header.
-        Raises EndOfMessage if there is no or only partial data available.
-        Called internally in decode() method
-        """
-        ord_data = self._decode_vint(buf)
-        f_type = ord_data & 7
-        f_id = ord_data >> 3
-        return f_type, f_id
-
-    @staticmethod
-    def _decode_vint(buf):
-        """
-        Decode vint encoded integer.
-        Raises EndOfMessage if there is no or only partial data available.
-        Called internally in decode() method.
-        """
-        ctr = 0
-        result = 0
-        tmp = bytearray(1)
-        partial = False
-        while 1:
-            count = buf.readinto(tmp)
-            if count == 0:
-                raise EndOfMessage(partial)
-            else:
-                partial = True
-            result |= (tmp[0] & 0x7f) << (7 * ctr)
-            if not (tmp[0] >> 7): break
-            ctr += 1
-        return result
-
-    @staticmethod
-    def _vint_dezigzagify(number):
-        """
-        Convert zigzag encoded integer to its original form.
-        Called internally in _decode_field() function
-        """
-
-        assert number >= 0, 'number is less than 0'
-        is_neg = number & 1
-        num = number >> 1
-        if is_neg:
-            num = ~num
-        return num
-
-    def _vint_2sctosigned(self, number):
-        """
-        Decode Two's Complement encoded integer (which were treated by the
-        'shallow' decoder as unsigned vint earlier) to normal signed integer
-        Called internally in _decode_field() function
-        """
-        assert number >= 0, 'number is less than 0'
-        if (number >> (self._vint_2sc_max_bits - 1)) & 1:
-            number = ~(~number & self._vint_2sc_mask)
-        return number
-
-    @classmethod
-    def _decode_str(self, buf):
-        """
-        Decode Protobuf variable length string to Python string.
-        Raises EndOfMessage if there is no or only partial data available.
-        Called internally in _decode_field() function.
-        """
-        length = self._decode_vint(buf)
-        result = buf.read(length)
-        if len(result) != length:
-            raise EndOfMessage(True)
-        return result
-
-    @staticmethod
-    def _read_fixed(buf, length):
-        """
-        Read out a fixed type and report if the result is incomplete.
-        Called internally in _break_down().
-        """
-        result = buf.read(length)
-        actual = len(result)
-        if actual != length:
-            raise EndOfMessage(False if actual == 0 else True)
-        return result
-
-    @classmethod
-    def _break_down(self, buf, type_override=None, id_override=None):
+    def _break_down(cls, buf, type_override=None, id_override=None):
         """
         Helper method to 'break down' a wire string into a list for
         further processing.
@@ -790,7 +874,7 @@ class Wire:
             else:
                 # if no more data, stop and return
                 try:
-                    f_type, f_id = self._decode_header(buf)
+                    f_type, f_id = _decode_header(buf)
                 except EOFError:
                     break
 
@@ -798,16 +882,16 @@ class Wire:
             #    "_break_down():field #%d pbtype #%d", f_id, f_type
             #)
             try:
-                if f_type == 0: # vint
-                    field['data'] = self._decode_vint(buf)
-                elif f_type == 1: # 64-bit
-                    field['data'] = self._read_fixed(buf, 8)
-                elif f_type == 2: # str
-                    field['data'] = self._decode_str(buf)
-                elif f_type == 5: # 32-bit
-                    field['data'] = self._read_fixed(buf, 4)
+                if f_type == _WIRE_TYPE_VARINT: # vint
+                    field['data'] = _decode_vint(buf)
+                elif f_type == _WIRE_TYPE_I64: # 64-bit
+                    field['data'] = _read_fixed(buf, 8)
+                elif f_type == _WIRE_TYPE_LEN: # str
+                    field['data'] = _decode_bytes(buf)
+                elif f_type == _WIRE_TYPE_I32: # 32-bit
+                    field['data'] = _read_fixed(buf, 4)
                 else:
-                    self.logger.warning(
+                    cls.logger.warning(
                         "_break_down():Ignore unknown type #%d", f_type
                     )
                     continue
@@ -819,36 +903,6 @@ class Wire:
             field['id'] = f_id
             field['wire_type'] = f_type
             yield field
-
-    @staticmethod
-    def _index_fields(decoded_raw):
-        """
-        Build an index for the fields decoded by _break_down().
-        Called internally in _decode_wire().
-        """
-        index = {}
-        for decoded in decoded_raw:
-            field_id = decoded['id']
-            if field_id not in index:
-                index[field_id] = []
-            index[field_id].append(decoded)
-        return index
-
-    @staticmethod
-    def _concat_fields(fields):
-        """
-        Concatenate 2 fields with the same wire type together.
-        Called internally in _decode_wire().
-        """
-        result_wire = io.BytesIO()
-        result = {'id': fields[0]['id'], 'wire_type': fields[0]['wire_type']}
-        for field in fields:
-            assert field['id'] == result['id'] and \
-                field['wire_type'] == result['wire_type'], \
-                'field id or wire_type mismatch'
-            result_wire.write(field['data'])
-        result['data'] = result_wire.getvalue()
-        return result
 
     def _decode_field(self, field_type, field_data, subcontent=None):
         """
@@ -865,51 +919,49 @@ class Wire:
             )
 
         field_decoded = None
+        field_bytes = field_data['data']
 
         # the actual decoding process
         # nested structure
-        if field_type == 'a' and subcontent:
+        if field_type == TYPE_BYTES and subcontent:
             #self.logger.debug('_decode_field(): nested field begin')
             if self._kv_fmt:
                 field_decoded = dict(self._decode_wire(
-                    io.BytesIO(field_data['data']),
+                    io.BytesIO(field_bytes),
                     subcontent
                 ))
             else:
                 field_decoded = tuple(self._decode_wire(
-                    io.BytesIO(field_data['data']),
+                    io.BytesIO(field_bytes),
                     subcontent
                 ))
             #self.logger.debug('_decode_field(): nested field end')
 
         # string, unsigned vint (2sc)
-        elif field_type in 'aT':
-            field_decoded = field_data['data']
+        elif field_type == TYPE_BYTES or field_type == TYPE_UINT32: # TYPE_UINT64 as well
+            field_decoded = field_bytes
 
         # unicode
-        elif field_type in 'U':
-            field_decoded = field_data['data'].decode('utf-8')
+        elif field_type == TYPE_STRING:
+            field_decoded = field_bytes.decode('utf-8')
 
         # vint (zigzag)
-        elif field_type == 'z':
-            field_decoded = self._vint_dezigzagify(field_data['data'])
+        elif field_type == TYPE_SINT32: # TYPE_SINT64 as well
+            field_decoded = _vint_dezigzagify(field_bytes)
 
         # signed 2sc
-        elif field_type == 't':
-            field_decoded = self._vint_2sctosigned(field_data['data'])
+        elif field_type == TYPE_INT32: # TYPE_INT64 as well
+            field_decoded =  _vint_2sctosigned(field_bytes, max_bits=self._vint_2sc_max_bits, mask=self._vint_2sc_mask)
 
         # fixed, float, double
-        elif field_type in 'iIfdqQ':
+        elif field_type in _TYPE_FIXED_LEN:
             field_decoded = struct.unpack(
-                '<{0}'.format(field_type), field_data['data']
+                '<{0}'.format(field_type), field_bytes
             )[0]
 
         # boolean
-        elif field_type == 'b':
-            if field_data['data'] == 0:
-                field_decoded = False
-            else:
-                field_decoded = True
+        elif field_type == TYPE_BOOL:
+            field_decoded = bool(field_bytes != 0)
 
         return field_decoded
 
@@ -919,11 +971,7 @@ class Wire:
         Used by the decode() method, may also be invoked by _decode_field()
         to decode nested structures
         """
-
-        # try to avoid both closure and lookup taxes on MicroPython
-        _concat_fields = self._concat_fields
-
-        decoded_raw_index = self._index_fields(self._break_down(buf))
+        decoded_raw_index = _index_fields(self._break_down(buf))
         if not subfmt:
             subfmt = self._fmt
 
@@ -936,7 +984,7 @@ class Wire:
 
             # sanity check
             if self._kv_fmt:
-                assert repeat == 1 or field_type == 'x', 'Refuse to do field copying on non-skip field in key-value mode.'
+                assert repeat == 1 or field_type == TYPE_EMPTY, 'Refuse to do field copying on non-skip field in key-value mode.'
 
             for field_id in range(field_id_start, field_id_start + repeat):
                 #self.logger.debug(
@@ -945,7 +993,7 @@ class Wire:
                 #)
 
                 # skip blank field
-                if field_type == 'x':
+                if field_type == TYPE_EMPTY:
                     continue
 
                 # get all the data attached on the given field
@@ -954,7 +1002,7 @@ class Wire:
                 # handle empty fields
                 if fields is None:
                     # raise error if a required field is empty
-                    if field_prefix == '*':
+                    if field_prefix == PREFIX_REQUIRED:
                         raise CodecError(
                             'Field {0} is required but is empty'\
                                 .format(field_id)
@@ -965,20 +1013,20 @@ class Wire:
 
                 # identify which kind of repeated field is present
                 # normal repeated fields
-                elif field_prefix == '+':
+                elif field_prefix == PREFIX_REPEATED:
                     field_decoded = tuple(
                         self._decode_field(field_type, f, subcontent)
                         for f in fields
                     )
 
                 # packed repeated field
-                elif field_prefix == '#':
+                elif field_prefix == PREFIX_REPEATED_PACKED:
                     if len(fields) > 1:
                         self.logger.warning(
                             'Multiple data found in a packed-repeated field.'
                         )
                         fields = (_concat_fields(fields), )
-                    if fields[0]['wire_type'] != self._FIELD_WIRE_TYPE['a']:
+                    if fields[0]['wire_type'] != _WIRE_TYPE_LEN:
                         raise CodecError('Packed repeated field {0} has wire type other than str'.format(
                             fmt['name'] if self._kv_fmt else field_id
                         ))
@@ -1027,7 +1075,6 @@ class Wire:
                 else:
                     yield field_decoded
 
-
 def encode(fmtstr, *stuff):
     """Encode given Python object(s) to binary wire using fmtstr"""
     return Wire(fmtstr).encode(*stuff)
@@ -1049,6 +1096,171 @@ def decode_raw(data):
     Useful for analyzing Protobuf messages with unknown schema
     """
     return Wire.decode_raw(data)
+
+# Adding support for Message and Field to succinctly define Messages #####
+_MESSAGE_FIELDS_MAP = '__minipb_fields_map__'
+_MESSAGE_KV_SCHEMA = '__minipb_kv_schema__'
+_MESSAGE_WIRE = '__minipb_wire__'
+
+class Field:
+    """MiniPB Field inspired from dataclasses module
+    https://github.com/python/cpython/blob/3.11/Lib/dataclasses.py#L273
+    """
+    __slots__ = ('name', 'number', 'type', 'required', 'repeated', 'repeated_packed')
+
+    def __init__(self, number, type_, required=False, repeated=False, repeated_packed=False):
+        assert type_ in TYPES or issubclass(type_, Message)
+        assert sum([required, repeated, repeated_packed]) <= 1
+        self.name = None
+        self.number = number
+        self.type = type_
+
+        self.required = required
+        self.repeated = repeated
+        self.repeated_packed = repeated_packed
+
+
+def _kv_schema_from_fields(fields_map):
+    """
+    Extract minipb_kv_schema in Key Value mode
+    """
+    kv_schema = []
+
+    # Assumes Values are all CLASS_FIELD or CLASS_MESSAGE
+    for key, current_field in fields_map.items():
+        # https://github.com/dogtopus/minipb/wiki/Schema-Representations#prefixes
+        prefix = ''
+        if current_field.required:
+            prefix = PREFIX_REQUIRED
+        elif current_field.repeated:
+            prefix = PREFIX_REPEATED
+        elif current_field.repeated_packed:
+            prefix = PREFIX_REPEATED_PACKED
+
+        # https://github.com/dogtopus/minipb/wiki/Schema-Representations#key-value-format-list
+        field_type = current_field.type
+        if field_type in TYPES:
+            schema_tuple = (key, prefix + field_type)
+        elif not prefix:
+            schema_tuple = (key, getattr(field_type, _MESSAGE_KV_SCHEMA))
+        elif prefix:
+            schema_tuple = (key, prefix + PREFIX_MESSAGE, getattr(field_type, _MESSAGE_KV_SCHEMA))
+
+        kv_schema.append(schema_tuple)
+
+    return tuple(kv_schema)
+
+
+def process_message_fields(cls):
+    # Identify all Fields
+    name_to_fields_map = collections.OrderedDict()
+
+    # Get Fields from base classes
+    for current_base in cls.__bases__:
+        # Only process classes that have been processed by our
+        # decorator.  That is, they have a _FIELDS attribute.
+        base_fields_map = getattr(current_base, _MESSAGE_FIELDS_MAP, None)
+        if not base_fields_map:
+            continue
+
+        for attr_name, current_field in base_fields_map.items():
+            name_to_fields_map[attr_name] = current_field
+
+    # Get Fields from this class declaration
+    number_and_field_list = []
+    for attr_name, current_field in cls.__dict__.items():
+        if not isinstance(current_field, Field):
+            continue
+
+        # Splice in Field name since Field declaration didn't have this
+        current_field.name = attr_name
+        number_and_field_list.append((current_field.number, current_field))
+
+    for _, current_field in sorted(number_and_field_list):
+        name_to_fields_map[current_field.name] = current_field
+
+    # Add in Message.Fields
+    kv_schema = _kv_schema_from_fields(name_to_fields_map)
+    setattr(cls, _MESSAGE_FIELDS_MAP, name_to_fields_map)
+    setattr(cls, _MESSAGE_KV_SCHEMA, kv_schema)
+    setattr(cls, _MESSAGE_WIRE, Wire(kv_schema))
+    return cls
+
+def is_message(obj):
+    """Returns True if obj is a dataclass or an instance of a
+    dataclass."""
+    cls = obj if isinstance(obj, type) else type(obj)
+    return hasattr(cls, _MESSAGE_FIELDS_MAP)
+
+def _msg_inner_to_dict(in_value):
+    if type(in_value) in (list, tuple):
+        return tuple(_msg_inner_to_dict(current_value) for current_value in in_value)
+    elif is_message(in_value):
+        return in_value.to_dict()
+    return in_value
+
+def _msg_inner_from_dict(in_value, current_field):
+    field_type = current_field.type
+    if type(in_value) in (list, tuple):
+        return tuple(_msg_inner_from_dict(current_value, current_field) for current_value in in_value)
+    elif is_message(field_type):
+        return field_type.from_dict(in_value)
+    return in_value
+
+class Message:
+    __minipb_fields_map__ = None # collections.OrderedDict
+    __minipb_kv_schema__  = None # tuple
+    __minipb_wire__       = None # Wire
+
+    def __init__(self, **kwargs):
+        assert self.__minipb_fields_map__ is not None, "Missing self.__minipb_fields_map__, forget to decorate Message with @process_message_fields?"
+        for current_attr, current_field in self.__minipb_fields_map__.items():
+            value = kwargs.get(current_attr, None)
+            if current_field.repeated or current_field.repeated_packed:
+                value = value or list()
+
+            setattr(self, current_attr, value)
+
+    def __eq__(self, other):
+        if other.__class__ is not self.__class__:
+            raise NotImplementedError
+
+        for current_attr in self.__minipb_fields_map__.keys():
+            if getattr(self, current_attr) != getattr(other, current_attr):
+                return False
+
+        return True
+
+    def to_dict(self, dict_factory=collections.OrderedDict):
+        output_map = dict_factory()
+        for attr_name in getattr(self, _MESSAGE_FIELDS_MAP).keys():
+            # Get the value on this instance
+            in_value = getattr(self, attr_name)
+            out_value = _msg_inner_to_dict(in_value)
+            output_map[attr_name] = out_value
+        return output_map
+
+    def encode(self):
+        output_map = self.to_dict()
+        return getattr(self, _MESSAGE_WIRE).encode(output_map)
+
+    @classmethod
+    def from_dict(cls, in_dict):
+        name_to_fields_map = getattr(cls, _MESSAGE_FIELDS_MAP)
+
+        out_instance = cls()
+        for attr_name, current_field in name_to_fields_map.items():
+            in_value = in_dict[attr_name]
+            out_value = _msg_inner_from_dict(in_value, current_field)
+            setattr(out_instance, attr_name, out_value)
+ 
+        return out_instance
+
+    @classmethod
+    def decode(cls, in_bytes):
+        decoded_dict =  getattr(cls, _MESSAGE_WIRE).decode(in_bytes)
+        return cls.from_dict(decoded_dict)
+
 
 if __name__ == '__main__':
     import sys
