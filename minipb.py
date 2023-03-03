@@ -73,9 +73,9 @@ class Wire(object):
         'l': 'i', 'L': 'I'
     }
 
-    # wire type & # of repeat
+    # wire type, # of repeat and field seek
     _T_FMT = re.compile(
-        r"^(?:({0})|({1}))(\d*)".format(
+        r"^(?:({0})|({1}))(\d*)(?:@(\d+))?".format(
             '|'.join(_FIELD_WIRE_TYPE.keys()),
             '|'.join(_FIELD_ALIAS.keys())
         )
@@ -83,6 +83,9 @@ class Wire(object):
 
     # Group 1: required/repeated/packed repeated, 2: nested struct begin
     _T_PREFIX = re.compile(r'^([\*\+#]?)(\[?)')
+
+    # Used for field seek after [ in kvfmt mode or after ] in fmtstr mode
+    _T_FIELD_SEEK = re.compile(r'^@(\d+)')
 
     # The default maximum length of a negative vint encoded in 2's complement (in bits)
     _VINT_MAX_BITS = 64
@@ -122,14 +125,34 @@ class Wire(object):
         """
         return self._kv_fmt
 
+    @staticmethod
+    def _parser_add_field(parsed_list, used_fields, parsed_field):
+        '''
+        Helper function that tracks used fields.
+        Called internally in _parse_kvfmt and _parse_kvfmt
+        '''
+        start_field_id = parsed_field['field_id']
+        if start_field_id in used_fields:
+            name = parsed_field.get('name')
+            raise BadFormatString('Multiple definitions found for field {0}{1}'.format(
+                start_field_id, '' if name is None else ' ({0})'.format(name)
+            ))
+        parsed_list.append(parsed_field)
+
+        repeats = parsed_field.get('repeat', 1)
+        for field in range(start_field_id, start_field_id+repeats):
+            used_fields.add(field)
+
     def _parse_kvfmt(self, fmtlist):
         """
         Similar to _parse() but for key-value format lists.
         """
         t_fmt = self._T_FMT
         t_prefix = self._T_PREFIX
+        t_field_seek = self._T_FIELD_SEEK
         parsed_list = []
         field_id = 1
+        used_fields = set()
 
         for entry in fmtlist:
             name = entry[0]
@@ -141,6 +164,14 @@ class Wire(object):
                 m_prefix = t_prefix.match(fmt)
                 if m_prefix:
                     ptr += _get_length_of_match(m_prefix)
+
+                    # handle field seek
+                    if ptr != len(fmt):
+                        m_field_seek = t_field_seek.match(fmt[ptr:])
+                        if m_field_seek:
+                            ptr += _get_length_of_match(m_field_seek)
+                            field_id = int(m_field_seek.group(1))
+
                     parsed_field['prefix'] = m_prefix.group(1)
                     # check for optional nested structure start (required if the field is also repeated)
                     if m_prefix.group(2) and len(entry) > 2:
@@ -148,12 +179,15 @@ class Wire(object):
                         parsed_field['field_type'] = 'a'
                         parsed_field['subcontent'] = self._parse_kvfmt(entry[2])
                         field_id += 1
-                        parsed_list.append(parsed_field)
+                        self._parser_add_field(parsed_list, used_fields, parsed_field)
                         continue
                     elif m_prefix.group(2):
                         raise BadFormatString('Nested field type used without specifying field format.')
                 m_fmt = t_fmt.match(fmt[ptr:])
                 if m_fmt:
+                    # format seek
+                    if m_fmt.group(4):
+                        field_id = int(m_fmt.group(4))
                     ptr += _get_length_of_match(m_fmt)
                     resolved_fmt_char = None
                     # fmt is an alias
@@ -185,7 +219,8 @@ class Wire(object):
                 parsed_field['field_type'] = 'a'
                 parsed_field['subcontent'] = self._parse_kvfmt(fmt)
                 field_id += 1
-            parsed_list.append(parsed_field)
+            self._parser_add_field(parsed_list, used_fields, parsed_field)
+
         return parsed_list
 
     def _parse(self, fmtstr):
