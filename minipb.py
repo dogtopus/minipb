@@ -177,7 +177,7 @@ class Wire(object):
                 else:
                     raise BadFormatString('Invalid type for field "{0}"'.format(name))
                 if len(fmt) != ptr:
-                    self.logger.warning('Extra content found after the type string of %s.', name)
+                    raise BadFormatString('Unrecognized fragment "{0}" in format string'.format(fmt[ptr:]))
             else:
                 # Hard-code the empty prefix because we don't support copying
                 parsed_field['prefix'] = ''
@@ -232,7 +232,7 @@ class Wire(object):
                 ptr += _get_length_of_match(m_prefix)
                 parsed['prefix'] = m_prefix.group(1)
 
-                # check if we have a nested structure
+                # check if we have an embedded message
                 if m_prefix.group(2):
                     brace_offset = _match_brace(fmtstr, ptr - 1)
 
