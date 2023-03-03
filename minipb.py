@@ -90,10 +90,11 @@ class Wire(object):
     # Logger
     logger = logging.getLogger('minipb.Wire')
 
-    def __init__(self, fmt):
+    def __init__(self, fmt, vint_2sc_max_bits=None, allow_sparse_dict=False):
         self._vint_2sc_max_bits = 0
         self._vint_2sc_mask = 0
-        self.vint_2sc_max_bits = self._VINT_MAX_BITS
+        self.allow_sparse_dict = allow_sparse_dict
+        self.vint_2sc_max_bits = vint_2sc_max_bits or self._VINT_MAX_BITS
 
         if isinstance(fmt, str):
             self._fmt = self._parse(fmt)
@@ -355,11 +356,15 @@ class Wire(object):
             repeat = fmt.get('repeat', 1)
             for field_id in range(field_id_start, field_id_start + repeat):
                 try:
-                    field_data = stuff[stuff_id]
-                except (IndexError, KeyError):
+                    if self._kv_fmt and self.allow_sparse_dict:
+                        field_data = stuff.get(stuff_id)
+                    else:
+                        field_data = stuff[stuff_id]
+                except (IndexError, KeyError) as e:
                     raise CodecError('Insufficient parameters '
                                      '(empty field {0} not padded with None)'.format(
-                                         fmt['name'] if self._kv_fmt else field_id))
+                                         fmt['name'] if self._kv_fmt else field_id)) from e
+
                 prefix = fmt['prefix']
                 subcontent = fmt.get('subcontent')
                 wire_type = self._FIELD_WIRE_TYPE[fmt['field_type']]

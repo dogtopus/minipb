@@ -9,6 +9,7 @@ from typing import (
     Dict,
     Any,
     Literal,
+    Optional,
     overload,
 )
 
@@ -42,7 +43,8 @@ class EndOfMessage(EOFError):
 
 class Wire:
     logger: logging.Logger
-    def __init__(self, fmt: FormatSpec) -> None: ...
+    allow_sparse_dict: bool
+    def __init__(self, fmt: FormatSpec, vint_2sc_max_bits: Optional[int] = ..., allow_sparse_dict: bool = ...) -> None: ...
     @property
     def vint_2sc_max_bits(self) -> int: ...
     @vint_2sc_max_bits.setter
