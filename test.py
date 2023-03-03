@@ -6,6 +6,10 @@ TEST_RAW_ENCODED = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x7
 
 TEST_RAW_DECODED = ({'data': 123, 'id': 1, 'wire_type': 0}, {'data': b'test', 'id': 2, 'wire_type': 2}, {'data': b'\n\x06string\x10\xf8\x06', 'id': 3, 'wire_type': 2}, {'data': b'\n\x0eanother_string\x10\xb9`', 'id': 3, 'wire_type': 2})
 
+TEST_FIELD_SEEK_SIMPLE = b'\x10\x01\x18\x02R\x05test1\xa2\x01\x05test2'
+
+TEST_FIELD_SEEK_COMPLEX = b'\xa2\x01\t\x08\x02R\x05hello\xf2\x01\x06\x12\x04str1\xf2\x01\x06\x12\x04str2'
+
 class TestMiniPB(unittest.TestCase):
     # some of the following data were taken from
     # https://developers.google.com/protocol-buffers/docs/encoding
@@ -181,6 +185,80 @@ class TestMiniPB(unittest.TestCase):
         '''
         result = minipb.Wire.decode_raw(TEST_RAW_ENCODED)
         self.assertTupleEqual(result, TEST_RAW_DECODED)
+
+    def test_field_seek_fmtstr_simple(self):
+        '''
+        Field seek with format string: simple.
+        '''
+        expected_pb = TEST_FIELD_SEEK_SIMPLE
+        raw_obj = (1, 2, 'test1', 'test2')
+        w = minipb.Wire('V2@2U@10U@20')
+        self.assertEqual(w.encode(*raw_obj), expected_pb)
+        self.assertEqual(w.decode(expected_pb), raw_obj)
+
+    def test_field_seek_kvfmt_simple(self):
+        '''
+        Field seek with key-value format list: simple.
+        '''
+        expected_pb = TEST_FIELD_SEEK_SIMPLE
+        raw_obj = {
+            'arg1': 1,
+            'arg2': 2,
+            'arg3': 'test1',
+            'arg4': 'test2',
+        }
+        schema = (
+            ('arg1', 'V@2'),
+            ('arg2', 'V'),
+            ('arg3', 'U@10'),
+            ('arg4', 'U@20'),
+        )
+        w = minipb.Wire(schema)
+        self.assertEqual(w.encode(raw_obj), expected_pb)
+        self.assertEqual(w.decode(expected_pb), raw_obj)
+
+    def test_field_seek_fmtstr_complex(self):
+        '''
+        Field seek with format string: complex.
+        '''
+        expected_pb = TEST_FIELD_SEEK_COMPLEX
+        raw_obj = (
+            (1, 'hello'), (
+                ('str1', ),
+                ('str2', ),
+            ),
+        )
+        w = minipb.Wire('[vU@10]@20+[U@2]@30')
+        self.assertEqual(w.encode(*raw_obj), expected_pb)
+        self.assertEqual(w.decode(expected_pb), raw_obj)
+
+    def test_field_seek_kvfmt_complex(self):
+        '''
+        Field seek with key-value format list: complex.
+        '''
+        expected_pb = TEST_FIELD_SEEK_COMPLEX
+        raw_obj = {
+            'msg1': {
+                'code': 1,
+                'desc': 'hello',
+            },
+            'msg2': (
+                {'str': 'str1'},
+                {'str': 'str2'},
+            ),
+        }
+        schema = (
+            ('msg1', '[@20', (
+                ('code', 'v'),
+                ('desc', 'U@10'),
+            )),
+            ('msg2', '+[@30', (
+                ('str', 'U@2'),
+            )),
+        )
+        w = minipb.Wire(schema)
+        self.assertEqual(w.encode(raw_obj), expected_pb)
+        self.assertEqual(w.decode(expected_pb), raw_obj)
 
     def test_badbehavior_missing_field_kvfmt(self):
         '''
