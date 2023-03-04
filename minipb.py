@@ -130,7 +130,8 @@ class _OverlapCheck:
 
     def add_field(self, parsed_list, parsed_field):
         '''
-        Ensures fields haven't been used before adding them.
+        Ensures fields defined in parsed_field haven't been used before
+        adding them to parsed_list.
         Called internally in _parse_kvfmt and _parse.
         '''
         start_field_id = parsed_field['field_id']
@@ -322,12 +323,14 @@ class Wire:
 
         t_fmt = self._T_FMT
         t_prefix = self._T_PREFIX
+        t_field_seek = self._T_FIELD_SEEK
 
         ptr = 0
         # it seems that field id 0 is invalid
         field_id = 1
         length = len(fmtstr)
         parsed_list = []
+        overlap_check = _OverlapCheck()
 
         while ptr < length:
             parsed = {}
@@ -345,19 +348,30 @@ class Wire:
                         raise BadFormatString(
                             'Unmatched brace on position {0}'.format(ptr)
                         )
-                    parsed['field_id'] = field_id
                     parsed['field_type'] = 'a'
                     parsed['subcontent'] = self._parse(
                         fmtstr[ptr:brace_offset]
                     )
                     ptr = brace_offset + 1
+
+                    # handle field seek
+                    m_field_seek = t_field_seek.match(fmtstr[ptr:])
+                    if m_field_seek is not None:
+                        ptr += _get_length_of_match(m_field_seek)
+                        field_id = int(m_field_seek.group(1))
+
+                    parsed['field_id'] = field_id
                     field_id += 1
 
-                    parsed_list.append(parsed)
+                    overlap_check.add_field(parsed_list, parsed)
                     continue
             m_fmt = t_fmt.match(fmtstr[ptr:])
             if m_fmt:
                 ptr += _get_length_of_match(m_fmt)
+
+                # format seek
+                if m_fmt.group(4):
+                    field_id = int(m_fmt.group(4))
 
                 # fmt is an alias
                 if m_fmt.group(2):
@@ -378,7 +392,7 @@ class Wire:
                     parsed['repeat'] = 1
                     field_id += 1
 
-                parsed_list.append(parsed)
+                overlap_check.add_field(parsed_list, parsed)
 
             else:
                 raise BadFormatString(
