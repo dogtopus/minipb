@@ -15,6 +15,7 @@ can be used in resource limited systems, quick protocol prototyping and
 reverse-engineering of unknown Protobuf messages.
 """
 
+import bisect
 import logging
 import re
 import struct
@@ -60,7 +61,93 @@ else:
         return m.end()
 
 
-class Wire(object):
+class _OverlapCheck:
+    '''
+    Check overlaps of fields and keep track used field intervals.
+    Used internally in Wire schema parsers.
+    '''
+    def __init__(self):
+        self._parser_used_fields = None
+
+    def _check_overlap(self, start, span=1):
+        '''
+        Helper method that keep track on overlapping fields.
+        Called internally in add_field.
+        '''
+        parser_used_fields = self._parser_used_fields
+
+        # Decide actual end point
+        end = start + span
+
+        if parser_used_fields is None:
+            self._parser_used_fields = [start, end]
+            return True
+
+        # Append at the end (happy path)
+        if start == parser_used_fields[-1]:
+            parser_used_fields[-1] = end
+            return True
+        if start > parser_used_fields[-1]:
+            parser_used_fields.extend((start, end))
+            return True
+
+        # Prepend at the beginning
+        if end == parser_used_fields[0]:
+            parser_used_fields[0] = start
+            return True
+        if end < parser_used_fields[0]:
+            parser_used_fields.insert(0, end)
+            parser_used_fields.insert(0, start)
+            return True
+
+        # Determine insertion point
+        offset = bisect.bisect_right(parser_used_fields, start)
+
+        # Insertion point is within a single interval. Definitely overlapping.
+        if offset % 2 != 0:
+            return False
+
+        gap_start, gap_end = parser_used_fields[offset-1], parser_used_fields[offset]
+        # Check if end is in another interval or gap. If so there's an overlap.
+        if end > gap_end:
+            return False
+
+        # New interval in-between 2 existing intervals
+        if gap_start != start and gap_end != end:
+            parser_used_fields.insert(offset, end)
+            parser_used_fields.insert(offset, start)
+        # Only start is equal. Extending right side interval
+        elif gap_end != end:
+            parser_used_fields[offset-1] = end
+        # Only end is equal. Extending left side interval
+        elif gap_start != start:
+            parser_used_fields[offset] = start
+        # Both are equal. Connecting 2 intervals
+        else:
+            del parser_used_fields[offset-1]
+            del parser_used_fields[offset-1]
+        return True
+
+    def add_field(self, parsed_list, parsed_field):
+        '''
+        Ensures fields haven't been used before adding them.
+        Called internally in _parse_kvfmt and _parse.
+        '''
+        start_field_id = parsed_field['field_id']
+        repeats = parsed_field.get('repeat', 1)
+        success = self._check_overlap(start_field_id, repeats)
+        if not success:
+            name = parsed_field.get('name')
+            raise BadFormatString('Multiple definitions found for field {0}{1}{2}'.format(
+                start_field_id,
+                '.' if repeats == 1 else ' or {0} more fields after it'.format(repeats-1),
+                '.' if name is None else ' ({0})'.format(name)
+            ))
+
+        parsed_list.append(parsed_field)
+
+
+class Wire:
     # Field types
     _FIELD_WIRE_TYPE = {
         'x': None,
@@ -125,24 +212,6 @@ class Wire(object):
         """
         return self._kv_fmt
 
-    @staticmethod
-    def _parser_add_field(parsed_list, used_fields, parsed_field):
-        '''
-        Helper function that tracks used fields.
-        Called internally in _parse_kvfmt and _parse_kvfmt
-        '''
-        start_field_id = parsed_field['field_id']
-        if start_field_id in used_fields:
-            name = parsed_field.get('name')
-            raise BadFormatString('Multiple definitions found for field {0}{1}'.format(
-                start_field_id, '' if name is None else ' ({0})'.format(name)
-            ))
-        parsed_list.append(parsed_field)
-
-        repeats = parsed_field.get('repeat', 1)
-        for field in range(start_field_id, start_field_id+repeats):
-            used_fields.add(field)
-
     def _parse_kvfmt(self, fmtlist):
         """
         Similar to _parse() but for key-value format lists.
@@ -152,7 +221,7 @@ class Wire(object):
         t_field_seek = self._T_FIELD_SEEK
         parsed_list = []
         field_id = 1
-        used_fields = set()
+        overlap_check = _OverlapCheck()
 
         for entry in fmtlist:
             name = entry[0]
@@ -179,7 +248,7 @@ class Wire(object):
                         parsed_field['field_type'] = 'a'
                         parsed_field['subcontent'] = self._parse_kvfmt(entry[2])
                         field_id += 1
-                        self._parser_add_field(parsed_list, used_fields, parsed_field)
+                        overlap_check.add_field(parsed_list, parsed_field)
                         continue
                     elif m_prefix.group(2):
                         raise BadFormatString('Nested field type used without specifying field format.')
@@ -219,7 +288,7 @@ class Wire(object):
                 parsed_field['field_type'] = 'a'
                 parsed_field['subcontent'] = self._parse_kvfmt(fmt)
                 field_id += 1
-            self._parser_add_field(parsed_list, used_fields, parsed_field)
+            overlap_check.add_field(parsed_list, parsed_field)
 
         return parsed_list
 

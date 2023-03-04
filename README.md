@@ -61,7 +61,7 @@ pip install git+https://github.com/dogtopus/minipb
 
 **NOTE**: Despite being lightweight compared to official Protobuf, the `minipb` module itself still uses around 15KB of RAM after loaded via `import`. Therefore it is recommended to use MiniPB on MicroPython instances with minimum of 24KB of memory available to the scripts. Instances with at least 48KB of free memory is recommended for more complex program logic.
 
-On targets with plenty of RAM, such as Pyboards and the Unix build, installation consists of copying `minipb.py` to the filesystem and installing the `logging` module from [micropython-lib][mpylib]. For targets with restricted RAM there are two options: cross compilation and frozen bytecode. The latter offers the greatest saving. See the [official docs][mpydoc] for further explanation.
+On targets with plenty of RAM, such as Pyboards and the Unix build, installation consists of copying `minipb.py` to the filesystem and installing the `logging` and `bisect` module from [micropython-lib][mpylib]. For targets with restricted RAM there are two options: cross compilation and frozen bytecode. The latter offers the greatest saving. See the [official docs][mpydoc] for further explanation.
 
 Cross compilation may be achieved as follows. First you need `mpy-cross` that is compatible with the mpy version you are using.
 
@@ -71,10 +71,11 @@ Compile MiniPB by using
 mpy-cross -s minipb.py minipb/minipb.py -o /your/PYBFLASH/minipb.mpy
 ```
 
-You also need `logging` module from [micropython-lib][mpylib]. Compile it by using
+You also need `logging` and `bisect` module from [micropython-lib][mpylib]. Compile it by using
 
 ```sh
 mpy-cross -s logging.py micropython-lib/logging/logging.py -o /your/PYBFLASH/logging.mpy
+mpy-cross -s bisect.py micropython-lib/bisect/bisect.py -o /your/PYBFLASH/bisect.mpy
 ```
 
 Unmount PYBFLASH and reset the board when both files are installed to your MicroPython instance.
@@ -84,6 +85,7 @@ On production deployment, it is possible to run `mpy-cross` with `-O` set to hig
 ```sh
 mpy-cross -s minipb.py -O3 minipb/minipb.py -o /your/PYBFLASH/minipb.mpy
 mpy-cross -s logging.py -O3 micropython-lib/logging/logging.py -o /your/PYBFLASH/logging.mpy
+mpy-cross -s bisect.py -O3 micropython-lib/bisect/bisect.py -o /your/PYBFLASH/bisect.mpy
 ```
 
 ## Usage
