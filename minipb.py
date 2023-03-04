@@ -812,7 +812,7 @@ class Wire:
                     continue
             except EndOfMessage as e:
                 if type_override is None or e.partial:
-                    raise CodecError('Unexpected end of message while decoding field {0}'.format(f_id))
+                    raise CodecError('Unexpected end of message while decoding field {0}'.format(f_id)) from e
                 else:
                     break
             field['id'] = f_id
