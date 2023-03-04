@@ -139,10 +139,10 @@ class _OverlapCheck:
         success = self._check_overlap(start_field_id, repeats)
         if not success:
             name = parsed_field.get('name')
-            raise BadFormatString('Multiple definitions found for field {0}{1}{2}'.format(
+            raise BadFormatString('Multiple definitions found for field {0}{1}{2}.'.format(
                 start_field_id,
-                '.' if repeats == 1 else ' or {0} more fields after it'.format(repeats-1),
-                '.' if name is None else ' ({0})'.format(name)
+                '' if repeats == 1 else ' or {0} more fields after it'.format(repeats-1),
+                '' if name is None else ' ({0})'.format(name)
             ))
 
         parsed_list.append(parsed_field)

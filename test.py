@@ -318,5 +318,85 @@ class TestMiniPB(unittest.TestCase):
             minipb.decode('Q', expected_pb)
         self.assertIn('Unexpected end of message', details.exception.args[0])
 
+    def test_badbehavior_fmtstr_field_seek_overlap_single(self):
+        '''
+        Bad behavior: should raise exception when one field overlap with another.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire('VU@1')
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+
+    def test_badbehavior_fmtstr_field_seek_overlap_range_single(self):
+        '''
+        Bad behavior: should raise exception when one field range overlap with a field.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire('V3@1U@2')
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+
+    def test_badbehavior_fmtstr_field_seek_overlap_range(self):
+        '''
+        Bad behavior: should raise exception when one field range overlap with another range.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire('V3@1U2@2')
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+        self.assertIn('more fields after it', details.exception.args[0])
+
+    def test_badbehavior_fmtstr_field_seek_overlap_single_range(self):
+        '''
+        Bad behavior: should raise exception when one field range overlap with another range.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire('V@3U3@1')
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+        self.assertIn('more fields after it', details.exception.args[0])
+
+    def test_badbehavior_kvfmt_field_seek_overlap_single(self):
+        '''
+        Bad behavior: should raise exception when one field overlap with another.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire((
+                ('a', 'V'),
+                ('b', 'U@1'),
+            ))
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+
+    def test_badbehavior_kvfmt_field_seek_overlap_range_single(self):
+        '''
+        Bad behavior: should raise exception when one field range overlap with a field.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire((
+                ('_', 'x3@1'),
+                ('a', 'U@2'),
+            ))
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+
+    def test_badbehavior_kvfmt_field_seek_overlap_range(self):
+        '''
+        Bad behavior: should raise exception when one field range overlap with another range.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire((
+                ('_', 'x3@1'),
+                ('_', 'x2@2'),
+            ))
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+        self.assertIn('more fields after it', details.exception.args[0])
+
+    def test_badbehavior_kvfmt_field_seek_overlap_single_range(self):
+        '''
+        Bad behavior: should raise exception when one field range overlap with another range.
+        '''
+        with self.assertRaises(minipb.BadFormatString) as details:
+            minipb.Wire((
+                ('a', 'V@3'),
+                ('_', 'x3@1'),
+            ))
+        self.assertIn('Multiple definitions found', details.exception.args[0])
+        self.assertIn('more fields after it', details.exception.args[0])
+
 if __name__ == '__main__':
     unittest.main()
