@@ -9,7 +9,8 @@ Mini Protobuf library in pure Python.
 - Pure Python.
 - Feature-rich yet lightweight. Even runs on MicroPython.
 - Supports both struct-like format string and ctypes-like structure representation (i.e. `Structure._field_`) as schema.
-- Support schema-less inspection of a given serialized message via the `RawWire` API.
+- Support schema-less inspection of a given serialized message via `Wire.{encode,decode}_raw` API.
+  - Proudly doing this earlier than [protoscope](https://github.com/protocolbuffers/protoscope).
 
 ## Getting started
 
