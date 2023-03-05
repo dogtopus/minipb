@@ -158,7 +158,8 @@ class Wire:
     # Field aliases
     _FIELD_ALIAS = {
         'v': 'z', 'V': 'T',
-        'l': 'i', 'L': 'I'
+        'l': 'i', 'L': 'I',
+        'u': 'U',
     }
 
     # wire type, # of repeat and field seek
