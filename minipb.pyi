@@ -22,7 +22,7 @@ KVFormatSpec = Sequence[
     Union[
         Tuple[str, str], # name, type
         Tuple[str, 'KVFormatSpec'], # name, other_schema
-        Tuple[str, Literal['[', '+[', '*[', '*+[', '+*['], 'KVFormatSpec'], # name, type, other_schema
+        Tuple[str, str, 'KVFormatSpec'], # name, type, other_schema
     ]
 ]
 
