@@ -2,7 +2,7 @@
 
 Mini Protobuf library in pure Python.
 
-![Python package](https://github.com/dogtopus/minipb/workflows/Python%20package/badge.svg)
+![Lint and Run Test Suite](https://github.com/dogtopus/minipb/workflows/Lint%20and%20Run%20Test%20Suite/badge.svg)
 
 ## Features
 
