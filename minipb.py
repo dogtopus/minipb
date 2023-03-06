@@ -307,7 +307,7 @@ class Wire:
             - repeat: Optional. Copy this field specified number of times to consecutive indices.
         """
         def _match_brace(string, start_pos, pair='[]'):
-            """Pairing brackets (used internally in _parse method)"""
+            """Pairing brackets"""
             depth = 1
             if string[start_pos] != pair[0]:
                 return None
@@ -820,6 +820,36 @@ class Wire:
             field['wire_type'] = f_type
             yield field
 
+    @staticmethod
+    def _index_fields(decoded_raw):
+        """
+        Build an index for the fields decoded by _break_down().
+        Called internally in _decode_wire().
+        """
+        index = {}
+        for decoded in decoded_raw:
+            field_id = decoded['id']
+            if field_id not in index:
+                index[field_id] = []
+            index[field_id].append(decoded)
+        return index
+
+    @staticmethod
+    def _concat_fields(fields):
+        """
+        Concatenate 2 fields with the same wire type together.
+        Called internally in _decode_wire().
+        """
+        result_wire = io.BytesIO()
+        result = {'id': fields[0]['id'], 'wire_type': fields[0]['wire_type']}
+        for field in fields:
+            assert field['id'] == result['id'] and \
+                field['wire_type'] == result['wire_type'], \
+                'field id or wire_type mismatch'
+            result_wire.write(field['data'])
+        result['data'] = result_wire.getvalue()
+        return result
+
     def _decode_field(self, field_type, field_data, subcontent=None):
         """
         Decode a single field
@@ -889,21 +919,11 @@ class Wire:
         Used by the decode() method, may also be invoked by _decode_field()
         to decode nested structures
         """
-        def _concat_fields(fields):
-            """
-            Concatenate 2 fields with the same wire type together
-            """
-            result_wire = io.BytesIO()
-            result = {'id': fields[0]['id'], 'wire_type': fields[0]['wire_type']}
-            for field in fields:
-                assert field['id'] == result['id'] and \
-                    field['wire_type'] == result['wire_type'], \
-                    'field id or wire_type mismatch'
-                result_wire.write(field['data'])
-            result['data'] = result_wire.getvalue()
-            return result
 
-        decoded_raw = tuple(self._break_down(buf))
+        # try to avoid both closure and lookup taxes on MicroPython
+        _concat_fields = self._concat_fields
+
+        decoded_raw_index = self._index_fields(self._break_down(buf))
         if not subfmt:
             subfmt = self._fmt
 
@@ -929,18 +949,23 @@ class Wire:
                     continue
 
                 # get all the data attached on the given field
-                fields = tuple(x for x in decoded_raw if x['id'] == field_id)
+                fields = decoded_raw_index.get(field_id)
 
-                # raise error if a required field is empty
-                if field_prefix == '*' and len(fields) == 0:
-                    raise CodecError(
-                        'Field {0} is required but is empty'\
-                            .format(field_id)
-                    )
+                # handle empty fields
+                if fields is None:
+                    # raise error if a required field is empty
+                    if field_prefix == '*':
+                        raise CodecError(
+                            'Field {0} is required but is empty'\
+                                .format(field_id)
+                        )
+                    # otherwise, decode to None if field is empty
+                    else:
+                        field_decoded = None
 
                 # identify which kind of repeated field is present
                 # normal repeated fields
-                if field_prefix == '+':
+                elif field_prefix == '+':
                     field_decoded = tuple(
                         self._decode_field(field_type, f, subcontent)
                         for f in fields
@@ -993,12 +1018,9 @@ class Wire:
 
                 # not a repeated field
                 else:
-                    if len(fields) != 0:
-                        field_decoded = self._decode_field(
-                            field_type, fields[0], subcontent
-                        )
-                    else:
-                        field_decoded = None
+                    field_decoded = self._decode_field(
+                        field_type, fields[0], subcontent
+                    )
 
                 if self._kv_fmt:
                     yield fmt['name'], field_decoded
