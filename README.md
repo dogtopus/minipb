@@ -149,16 +149,16 @@ Translating a proto into a Message class
 ```
 
 ```python
-from minipb import Message, Field, TYPE_STRING, STRING_INT32
+from minipb import Message, Field, TYPE_STRING, TYPE_INT32
 
 class PhoneNumber(Message):
     number = Field(TYPE_STRING, required=True)
-    type = Field(TYP_INT32)
+    type   = Field(TYPE_INT32)
 
 class Person(Message):
-    name = Field(TYPE_STRING, required=True)
-    id = Field(TYPE_INT32, required=True)
-    email = Field(TYPE_STRING)
+    name   = Field(TYPE_STRING, required=True)
+    id     = Field(TYPE_INT32, required=True)
+    email  = Field(TYPE_STRING)
 
-    phone = Field(PhoneNumber, repeated=True)
+    phone  = Field(PhoneNumber, repeated=True)
 ```
