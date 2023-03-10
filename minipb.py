@@ -1157,119 +1157,38 @@ def _kv_schema_from_fields(fields_map):
 
     return tuple(kv_schema)
 
-def _create_fn(name, args, body):
-    args = ','.join(args)
-    body = '\n'.join('    %s' % b for b in body)
 
-    # Compute the text of the entire function.
-    fxn_as_txt = 'def %s(%s):\n%s' % (name, args, body)
+def process_message_fields(cls):
+    # Identify all Fields
+    name_to_fields_map = collections.OrderedDict()
 
-    # Create a dummy wrapper fxn so we can invoke it and get the returned function
-    # Invoke the dummy wrapper and return the fxn
-    fxn_wrapper_as_txt = "def __create_fn__():\n  %s\n  return %s" % (fxn_as_txt, name)
-    fxn_globals = {}
-    fxn_ns = {}
-    exec(fxn_wrapper_as_txt, fxn_globals, fxn_ns)
-    return fxn_ns['__create_fn__']()
+    # Get Fields from base classes
+    bases = cls.__mro__[-1:0:-1]
+    for current_base in bases:
+        # Only process classes that have been processed by our
+        # decorator.  That is, they have a _FIELDS attribute.
+        base_fields_map = getattr(current_base, _MESSAGE_FIELDS_MAP, None)
+        if not base_fields_map:
+            continue
 
-def _init_fn(fields):
-    """Inspired from dataclasses._init_fn"""
-    # Python code in a string... will be evaled later
-    # __init__: make all fields as kwargs with default = None
-    _init_fxn_params = ['%s=None' % f.name for f in fields]
-
-    # fxn_body
-    _init_fxn_body_lines = []
-    for f in fields:
-        value = f.name
-
-        # Within the __init__ fxn, self.name = name or list()
-        if f.repeated or f.repeated_packed:
-            value += ' or list()'
-
-        # self.name = name or list()
-        _init_fxn_body_lines.append('self.%s = %s' % (f.name, value))
-
-    return _create_fn('__init__',
-                      ['self'] + _init_fxn_params,
-                      _init_fxn_body_lines)
-
-def _tuple_str(obj_name, fields):
-    # Return a string representing each field of obj_name as a tuple
-    # member.  So, if fields is ['x', 'y'] and obj_name is "self",
-    # return "(self.x,self.y)".
-
-    # Special case for the 0-tuple.
-    if not fields:
-        return '()'
-    # Note the trailing comma, needed if this turns out to be a 1-tuple.
-    return ''.join([
-        '(',
-        ','.join(['%s.%s' % (obj_name, f.name) for f in fields]),
-        ',)'
-        ])
-
-def _eq_fn(fields):
-    self_tuple = _tuple_str('self', fields)
-    other_tuple = _tuple_str('other', fields)
-    return _create_fn('__eq__', ('self', 'other'),
-                      ['if other.__class__ is self.__class__:',
-                       '    return %s==%s' % (self_tuple, other_tuple),
-                       'return NotImplemented'])
-
-def _hash_fn(fields):
-    self_tuple = _tuple_str('self', fields)
-    return _create_fn('__hash__',
-                      ('self',),
-                      ['return hash(%s)' % self_tuple])
-
-class _MessageMeta(type):
-    @classmethod
-    def __prepare__(cls, name, bases):
-        return collections.OrderedDict()
-
-    def __new__(metacls, name, bases, classdict):
-        # Identify all Fields
-        name_to_fields_map = collections.OrderedDict()
-
-        # Get Fields from base classes
-        for current_base in bases:
-            # Only process classes that have been processed by our
-            # decorator.  That is, they have a _FIELDS attribute.
-            base_fields_map = getattr(current_base, _MESSAGE_FIELDS_MAP, None)
-            if not base_fields_map:
-                continue
-
-            for attr_name, current_field in base_fields_map.items():
-                name_to_fields_map[attr_name] = current_field
-
-        # Get Fields from this class declaration
-        for attr_name, current_field in classdict.items():
-            if not isinstance(current_field, Field):
-                continue
-
-            # Splice in Field name since Field declaration didn't have this
-            current_field.name = attr_name
+        for attr_name, current_field in base_fields_map.items():
             name_to_fields_map[attr_name] = current_field
 
-        # Splice in __init__, __eq__ and __hash__ functions based on fields
-        fields = name_to_fields_map.values()
-        if fields:
-            classdict['__init__'] = _init_fn(fields)
-            classdict['__eq__'] = _eq_fn(fields)
-            classdict['__hash__'] = _hash_fn(fields)
+    # Get Fields from this class declaration
+    for attr_name, current_field in cls.__dict__.items():
+        if not isinstance(current_field, Field):
+            continue
 
-        # Splice in __slots__, need to remove these as ClassVars
-        for current_field in name_to_fields_map:
-            classdict.pop(current_field, None)
-        classdict['__slots__'] = tuple(name_to_fields_map.keys())
+        # Splice in Field name since Field declaration didn't have this
+        current_field.name = attr_name
+        name_to_fields_map[attr_name] = current_field
 
-        # Add in Message.Fields
-        kv_schema = _kv_schema_from_fields(name_to_fields_map)
-        classdict[_MESSAGE_FIELDS_MAP] = name_to_fields_map
-        classdict[_MESSAGE_KV_SCHEMA] = kv_schema
-        classdict[_MESSAGE_WIRE] = Wire(kv_schema)
-        return type.__new__(metacls, name, bases, classdict)
+    # Add in Message.Fields
+    kv_schema = _kv_schema_from_fields(name_to_fields_map)
+    setattr(cls, _MESSAGE_FIELDS_MAP, name_to_fields_map)
+    setattr(cls, _MESSAGE_KV_SCHEMA, kv_schema)
+    setattr(cls, _MESSAGE_WIRE, Wire(kv_schema))
+    return cls
 
 def is_message(obj):
     """Returns True if obj is a dataclass or an instance of a
@@ -1292,7 +1211,30 @@ def _msg_inner_from_dict(in_value, current_field):
         return field_type.from_dict(in_value)
     return in_value
 
-class Message(metaclass=_MessageMeta):
+class Message:
+    __minipb_fields_map__:collections.OrderedDict[str,Field] = None
+    __minipb_kv_schema__ :tuple = None
+    __minipb_wire__      :Wire = None
+
+    def __init__(self, **kwargs):
+        assert self.__minipb_fields_map__ is not None, "Missing self.__minipb_fields_map__, forget to decorate Message with @process_message_fields?"
+        for current_attr, current_field in self.__minipb_fields_map__.items():
+            value = kwargs.get(current_attr, None)
+            if current_field.repeated or current_field.repeated_packed:
+                value = value or list()
+
+            setattr(self, current_attr, value)
+
+    def __eq__(self, other):
+        if other.__class__ is not self.__class__:
+            raise NotImplementedError
+
+        for current_attr in self.__minipb_fields_map__.keys():
+            if getattr(self, current_attr) != getattr(other, current_attr):
+                return False
+
+        return True
+
     def to_dict(self, dict_factory=dict):
         output_map = dict_factory()
         for attr_name in getattr(self, _MESSAGE_FIELDS_MAP).keys():
