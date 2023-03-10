@@ -47,13 +47,12 @@ decoded_msg = hello_world_msg.decode(encoded_msg)
 
 
 ### Encode/Decode a Message with schema defined via Fields
+@minipb.process_message_fields
 class HelloWorldMessage(minipb.Message):
     msg = minipb.Field(minipb.TYPE_STRING)
 
 # Creating a Message instance
-#   Method 1: init, positionals and kwargs work!
-msg_obj = HelloWorldMessage('Hello world!')
-
+#   Method 1: init with kwargs work!
 msg_obj = HelloWorldMessage(msg='Hello world!')
 
 #   Method 2: from_dict, iterates over all Field's declared in order on the class
@@ -149,12 +148,14 @@ Translating a proto into a Message class
 ```
 
 ```python
-from minipb import Message, Field, TYPE_STRING, TYPE_INT32
+from minipb import TYPE_STRING, TYPE_INT32, process_message_fields, Message, Field
 
+@process_message_fields
 class PhoneNumber(Message):
     number = Field(TYPE_STRING, required=True)
     type   = Field(TYPE_INT32)
 
+@process_message_fields
 class Person(Message):
     name   = Field(TYPE_STRING, required=True)
     id     = Field(TYPE_INT32, required=True)
