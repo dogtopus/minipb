@@ -1211,7 +1211,7 @@ def _msg_inner_from_dict(in_value, current_field):
     return in_value
 
 class Message:
-    __minipb_fields_map__:collections.OrderedDict[str,Field] = None
+    __minipb_fields_map__:collections.OrderedDict = None
     __minipb_kv_schema__ :tuple = None
     __minipb_wire__      :Wire = None
 
