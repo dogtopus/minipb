@@ -573,6 +573,5 @@ class TestMiniPB(unittest.TestCase):
         self.assertEqual(overridden_name_to_fields_map['test_num'].type, minipb.TYPE_BOOL)
 
 
-
 if __name__ == '__main__':
     unittest.main()

@@ -1163,8 +1163,7 @@ def process_message_fields(cls):
     name_to_fields_map = collections.OrderedDict()
 
     # Get Fields from base classes
-    bases = cls.__mro__[-1:0:-1]
-    for current_base in bases:
+    for current_base in cls.__bases__:
         # Only process classes that have been processed by our
         # decorator.  That is, they have a _FIELDS attribute.
         base_fields_map = getattr(current_base, _MESSAGE_FIELDS_MAP, None)
