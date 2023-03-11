@@ -1234,7 +1234,7 @@ class Message:
 
         return True
 
-    def to_dict(self, dict_factory=dict):
+    def to_dict(self, dict_factory=collections.OrderedDict):
         output_map = dict_factory()
         for attr_name in getattr(self, _MESSAGE_FIELDS_MAP).keys():
             # Get the value on this instance
