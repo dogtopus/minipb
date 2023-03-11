@@ -49,7 +49,7 @@ decoded_msg = hello_world_msg.decode(encoded_msg)
 ### Encode/Decode a Message with schema defined via Fields
 @minipb.process_message_fields
 class HelloWorldMessage(minipb.Message):
-    msg = minipb.Field(minipb.TYPE_STRING)
+    msg = minipb.Field(1, minipb.TYPE_STRING)
 
 # Creating a Message instance
 #   Method 1: init with kwargs work!
@@ -151,15 +151,15 @@ Translating a proto into a Message class
 from minipb import TYPE_STRING, TYPE_INT32, process_message_fields, Message, Field
 
 @process_message_fields
-class PhoneNumber(Message):
-    number = Field(TYPE_STRING, required=True)
-    type   = Field(TYPE_INT32)
-
-@process_message_fields
 class Person(Message):
-    name   = Field(TYPE_STRING, required=True)
-    id     = Field(TYPE_INT32, required=True)
-    email  = Field(TYPE_STRING)
+    name   = Field(1, TYPE_STRING, required=True)
+    id     = Field(2, TYPE_INT32, required=True)
+    email  = Field(3, TYPE_STRING)
 
-    phone  = Field(PhoneNumber, repeated=True)
+    @process_message_fields
+    class PhoneNumber(Message):
+        number = Field(1, TYPE_STRING, required=True)
+        type   = Field(2, TYPE_INT32)
+
+    phone  = Field(4, PhoneNumber, repeated=True)
 ```

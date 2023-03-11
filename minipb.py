@@ -239,7 +239,33 @@ def _read_fixed(buf, length):
         raise EndOfMessage(False if actual == 0 else True)
     return result
 
+def _index_fields(decoded_raw):
+    """
+    Build an index for the fields decoded by _break_down().
+    Called internally in _decode_wire().
+    """
+    index = {}
+    for decoded in decoded_raw:
+        field_id = decoded['id']
+        if field_id not in index:
+            index[field_id] = []
+        index[field_id].append(decoded)
+    return index
 
+def _concat_fields(fields):
+    """
+    Concatenate 2 fields with the same wire type together.
+    Called internally in _decode_wire().
+    """
+    result_wire = io.BytesIO()
+    result = {'id': fields[0]['id'], 'wire_type': fields[0]['wire_type']}
+    for field in fields:
+        assert field['id'] == result['id'] and \
+            field['wire_type'] == result['wire_type'], \
+            'field id or wire_type mismatch'
+        result_wire.write(field['data'])
+    result['data'] = result_wire.getvalue()
+    return result
 
 class _OverlapCheck:
     '''
@@ -878,36 +904,6 @@ class Wire:
             field['wire_type'] = f_type
             yield field
 
-    @staticmethod
-    def _index_fields(decoded_raw):
-        """
-        Build an index for the fields decoded by _break_down().
-        Called internally in _decode_wire().
-        """
-        index = {}
-        for decoded in decoded_raw:
-            field_id = decoded['id']
-            if field_id not in index:
-                index[field_id] = []
-            index[field_id].append(decoded)
-        return index
-
-    @staticmethod
-    def _concat_fields(fields):
-        """
-        Concatenate 2 fields with the same wire type together.
-        Called internally in _decode_wire().
-        """
-        result_wire = io.BytesIO()
-        result = {'id': fields[0]['id'], 'wire_type': fields[0]['wire_type']}
-        for field in fields:
-            assert field['id'] == result['id'] and \
-                field['wire_type'] == result['wire_type'], \
-                'field id or wire_type mismatch'
-            result_wire.write(field['data'])
-        result['data'] = result_wire.getvalue()
-        return result
-
     def _decode_field(self, field_type, field_data, subcontent=None):
         """
         Decode a single field
@@ -975,11 +971,7 @@ class Wire:
         Used by the decode() method, may also be invoked by _decode_field()
         to decode nested structures
         """
-
-        # try to avoid both closure and lookup taxes on MicroPython
-        _concat_fields = self._concat_fields
-
-        decoded_raw_index = self._index_fields(self._break_down(buf))
+        decoded_raw_index = _index_fields(self._break_down(buf))
         if not subfmt:
             subfmt = self._fmt
 
@@ -1114,13 +1106,14 @@ class Field:
     """MiniPB Field inspired from dataclasses module
     https://github.com/python/cpython/blob/3.11/Lib/dataclasses.py#L273
     """
-    __slots__ = ('name', 'type', 'required', 'repeated', 'repeated_packed')
+    __slots__ = ('name', 'number', 'type', 'required', 'repeated', 'repeated_packed')
 
-    def __init__(self, minipb_type, required=False, repeated=False, repeated_packed=False):
-        assert minipb_type in TYPES or issubclass(minipb_type, Message)
+    def __init__(self, number, type_, required=False, repeated=False, repeated_packed=False):
+        assert type_ in TYPES or issubclass(type_, Message)
         assert sum([required, repeated, repeated_packed]) <= 1
         self.name = None
-        self.type = minipb_type
+        self.number = number
+        self.type = type_
 
         self.required = required
         self.repeated = repeated
@@ -1174,13 +1167,17 @@ def process_message_fields(cls):
             name_to_fields_map[attr_name] = current_field
 
     # Get Fields from this class declaration
+    number_and_field_list = []
     for attr_name, current_field in cls.__dict__.items():
         if not isinstance(current_field, Field):
             continue
 
         # Splice in Field name since Field declaration didn't have this
         current_field.name = attr_name
-        name_to_fields_map[attr_name] = current_field
+        number_and_field_list.append((current_field.number, current_field))
+
+    for _, current_field in sorted(number_and_field_list):
+        name_to_fields_map[current_field.name] = current_field
 
     # Add in Message.Fields
     kv_schema = _kv_schema_from_fields(name_to_fields_map)
