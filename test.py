@@ -541,7 +541,7 @@ class TestMiniPB(unittest.TestCase):
             test_num = minipb.Field(3, minipb.TYPE_UINT)
             test_str = minipb.Field(4, minipb.TYPE_STRING)
 
-        name_to_fields_map = getattr(TestMessage, minipb._MESSAGE_FIELDS_MAP)
+        name_to_fields_map = getattr(TestMessage, minipb._MESSAGE_NAME_TO_FIELDS_MAP)
         self.assertEqual(name_to_fields_map['test_num'].type, minipb.TYPE_UINT)
 
         expected_field_names = ('zbase_str', 'zbase_num', 'test_num', 'test_str')
