@@ -153,13 +153,13 @@ from minipb import TYPE_STRING, TYPE_INT32, process_message_fields, Message, Fie
 @process_message_fields
 class Person(Message):
     name   = Field(1, TYPE_STRING, required=True)
-    id     = Field(2, TYPE_INT32, required=True)
+    id     = Field(2, TYPE_INT, required=True)
     email  = Field(3, TYPE_STRING)
 
     @process_message_fields
     class PhoneNumber(Message):
         number = Field(1, TYPE_STRING, required=True)
-        type   = Field(2, TYPE_INT32)
+        type   = Field(2, TYPE_INT)
 
     phone  = Field(4, PhoneNumber, repeated=True)
 ```

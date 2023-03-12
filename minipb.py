@@ -23,16 +23,12 @@ import struct
 import io
 
 _IS_MPY = __import__('sys').implementation.name == 'micropython'
-
 # In order of https://protobuf.dev/programming-guides/proto3/
 TYPE_DOUBLE = 'd'
 TYPE_FLOAT = 'f'
-TYPE_INT32 = 't'
-TYPE_INT64 = 't'
-TYPE_UINT32 = 'T'
-TYPE_UINT64 = 'T'
-TYPE_SINT32 = 'z'
-TYPE_SINT64 = 'z'
+TYPE_INT = 't'
+TYPE_UINT = 'T'
+TYPE_SINT = 'z'
 TYPE_FIXED32 = 'I'
 TYPE_FIXED64 = 'Q'
 TYPE_SFIXED32 = 'i'
@@ -42,7 +38,16 @@ TYPE_STRING = 'U'
 TYPE_BYTES = 'a'
 TYPE_EMPTY = 'x'
 
-_TYPE_VARINTS = ''.join([TYPE_INT32, TYPE_UINT32, TYPE_SINT32, TYPE_BOOL])
+# Within MiniPB, all these types are handled the same way, simplifying to INT, UINT, and SINT
+TYPE_INT32 = TYPE_INT
+TYPE_INT64 = TYPE_INT
+TYPE_UINT32 = TYPE_UINT
+TYPE_UINT64 = TYPE_UINT
+TYPE_SINT32 = TYPE_SINT
+TYPE_SINT64 = TYPE_SINT
+
+
+_TYPE_VARINTS = ''.join([TYPE_INT, TYPE_UINT, TYPE_SINT, TYPE_BOOL])
 _TYPE_FIXED_LEN = ''.join([TYPE_SFIXED32, TYPE_FIXED32, TYPE_FLOAT, TYPE_DOUBLE, TYPE_SFIXED64, TYPE_FIXED64])
 
 # Wire Types - https://protobuf.dev/programming-guides/encoding/#structure
@@ -52,7 +57,7 @@ _WIRE_TYPE_LEN = 2
 _WIRE_TYPE_I32 = 5
 
 TYPES = frozenset([
-    TYPE_DOUBLE, TYPE_FLOAT, TYPE_INT32, TYPE_INT64, TYPE_UINT32, TYPE_UINT64, TYPE_SINT32, TYPE_SINT64, TYPE_FIXED32, TYPE_FIXED64, TYPE_SFIXED32, TYPE_SFIXED64, TYPE_BOOL, TYPE_STRING, TYPE_BYTES, TYPE_EMPTY,
+    TYPE_DOUBLE, TYPE_FLOAT, TYPE_INT, TYPE_UINT, TYPE_SINT, TYPE_FIXED32, TYPE_FIXED64, TYPE_SFIXED32, TYPE_SFIXED64, TYPE_BOOL, TYPE_STRING, TYPE_BYTES, TYPE_EMPTY,
     'v', 'V', 'l', 'L'
 ])
 
@@ -358,9 +363,9 @@ class Wire:
     # Field types - https://protobuf.dev/programming-guides/encoding/#structure
     _FIELD_WIRE_TYPE = {
         # VARINT
-        TYPE_INT32: _WIRE_TYPE_VARINT,
-        TYPE_UINT32: _WIRE_TYPE_VARINT,
-        TYPE_SINT32: _WIRE_TYPE_VARINT,
+        TYPE_INT: _WIRE_TYPE_VARINT,
+        TYPE_UINT: _WIRE_TYPE_VARINT,
+        TYPE_SINT: _WIRE_TYPE_VARINT,
         TYPE_BOOL: _WIRE_TYPE_VARINT,
 
         # I64
@@ -381,7 +386,7 @@ class Wire:
     }
     # Field aliases
     _FIELD_ALIAS = {
-        'v': TYPE_SINT32, 'V': TYPE_UINT32,
+        'v': TYPE_SINT, 'V': TYPE_UINT,
         'l': TYPE_SFIXED32, 'L': TYPE_FIXED32,
         'u': TYPE_STRING,
     }
@@ -797,9 +802,9 @@ class Wire:
 
         # vint family (signed, unsigned and boolean)
         elif field_type in _TYPE_VARINTS:
-            if field_type == TYPE_INT32:
+            if field_type == TYPE_INT:
                 field_data = _vint_signedto2sc(field_data, mask=self._vint_2sc_mask)
-            elif field_type == TYPE_SINT32:
+            elif field_type == TYPE_SINT:
                 field_data = _vint_zigzagify(field_data)
             elif field_type == TYPE_BOOL:
                 field_data = int(field_data)
@@ -938,7 +943,7 @@ class Wire:
             #self.logger.debug('_decode_field(): nested field end')
 
         # string, unsigned vint (2sc)
-        elif field_type == TYPE_BYTES or field_type == TYPE_UINT32: # TYPE_UINT64 as well
+        elif field_type == TYPE_BYTES or field_type == TYPE_UINT: # TYPE_UINT64 as well
             field_decoded = field_bytes
 
         # unicode
@@ -946,11 +951,11 @@ class Wire:
             field_decoded = field_bytes.decode('utf-8')
 
         # vint (zigzag)
-        elif field_type == TYPE_SINT32: # TYPE_SINT64 as well
+        elif field_type == TYPE_SINT: # TYPE_SINT64 as well
             field_decoded = _vint_dezigzagify(field_bytes)
 
         # signed 2sc
-        elif field_type == TYPE_INT32: # TYPE_INT64 as well
+        elif field_type == TYPE_INT: # TYPE_INT64 as well
             field_decoded =  _vint_2sctosigned(field_bytes, max_bits=self._vint_2sc_max_bits, mask=self._vint_2sc_mask)
 
         # fixed, float, double
@@ -1098,9 +1103,9 @@ def decode_raw(data):
     return Wire.decode_raw(data)
 
 # Adding support for Message and Field to succinctly define Messages #####
-_MESSAGE_FIELDS_MAP = '__minipb_fields_map__'
-_MESSAGE_KV_SCHEMA = '__minipb_kv_schema__'
-_MESSAGE_WIRE = '__minipb_wire__'
+_MESSAGE_FIELDS_MAP = '_minipb_fields_map'
+_MESSAGE_KV_SCHEMA = '_minipb_kv_schema'
+_MESSAGE_WIRE = '_minipb_wire'
 
 class Field:
     """MiniPB Field inspired from dataclasses module
@@ -1208,13 +1213,15 @@ def _msg_inner_from_dict(in_value, current_field):
     return in_value
 
 class Message:
-    __minipb_fields_map__ = None # collections.OrderedDict
-    __minipb_kv_schema__  = None # tuple
-    __minipb_wire__       = None # Wire
+    _minipb_fields_map = None # collections.OrderedDict
+    _minipb_kv_schema  = None # tuple
+    _minipb_wire       = None # Wire
 
     def __init__(self, **kwargs):
-        assert self.__minipb_fields_map__ is not None, "Missing self.__minipb_fields_map__, forget to decorate Message with @process_message_fields?"
-        for current_attr, current_field in self.__minipb_fields_map__.items():
+        name_to_fields_map = getattr(self, _MESSAGE_FIELDS_MAP)
+        assert name_to_fields_map is not None, "Missing self.__minipb_fields_map__, forget to decorate Message with @process_message_fields?"
+
+        for current_attr, current_field in name_to_fields_map.items():
             value = kwargs.get(current_attr, None)
             if current_field.repeated or current_field.repeated_packed:
                 value = value or list()
@@ -1225,7 +1232,8 @@ class Message:
         if other.__class__ is not self.__class__:
             raise NotImplementedError
 
-        for current_attr in self.__minipb_fields_map__.keys():
+        name_to_fields_map = getattr(self, _MESSAGE_FIELDS_MAP)
+        for current_attr in name_to_fields_map.keys():
             if getattr(self, current_attr) != getattr(other, current_attr):
                 return False
 
