@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import unittest
+import collections
 import minipb
 
 TEST_RAW_ENCODED = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x72\x69\x6e\x67\x10\xf8\x06\x1a\x13\x0a\x0e\x61\x6e\x6f\x74\x68\x65\x72\x5f\x73\x74\x72\x69\x6e\x67\x10\xb9\x60'
@@ -397,6 +398,155 @@ class TestMiniPB(unittest.TestCase):
             ))
         self.assertIn('Multiple definitions found', details.exception.args[0])
         self.assertIn('more fields after it', details.exception.args[0])
+
+
+    def test_msg_fields_to_kvfmt_complex(self):
+        @minipb.process_message_fields
+        class TestMessage(minipb.Message):
+            @minipb.process_message_fields
+            class NestedMessage(minipb.Message):
+                str2 = minipb.Field(1, minipb.TYPE_STRING)
+                num2 = minipb.Field(2, minipb.TYPE_UINT)
+
+            number = minipb.Field(1, minipb.TYPE_UINT)
+            string = minipb.Field(2, minipb.TYPE_STRING)
+            nested = minipb.Field(3, NestedMessage)
+
+        schema = (
+            ('number', 'T'),
+            ('string', 'U'),
+            ('nested', (('str2', 'U'),
+                        ('num2', 'T'),)),
+        )
+        schema_from_msg = getattr(TestMessage, minipb._MESSAGE_KV_SCHEMA)
+        self.assertEqual(schema_from_msg, schema)
+
+    def test_msg_fields_to_kvfmt_very_complex(self):
+        @minipb.process_message_fields
+        class TestMessage(minipb.Message):
+            @minipb.process_message_fields
+            class NestedMessage(minipb.Message):
+                str2 = minipb.Field(1, minipb.TYPE_STRING)
+                num2 = minipb.Field(2, minipb.TYPE_UINT)
+
+            number = minipb.Field(1, minipb.TYPE_UINT)
+            string = minipb.Field(2, minipb.TYPE_STRING)
+            nested = minipb.Field(3, NestedMessage, repeated=True)
+
+        schema = (
+            ('number', 'T'),
+            ('string', 'U'),
+            ('nested', '+[', (('str2', 'U'),
+                              ('num2', 'T'),)),
+        )
+        schema_from_msg = getattr(TestMessage, minipb._MESSAGE_KV_SCHEMA)
+        self.assertEqual(schema_from_msg, schema)
+
+    def _msg_from_raw_obj_with_nested(self):
+        n1 = collections.OrderedDict()
+        n1['str2'] = 'string'
+        n1['num2'] = 888
+
+        n2 = collections.OrderedDict()
+        n2['str2'] = 'another_string'
+        n2['num2'] = 12345
+
+        raw_obj = collections.OrderedDict()
+        raw_obj['number'] = 123
+        raw_obj['string'] = 'test'
+        raw_obj['nested'] = (n1, n2)
+        return raw_obj
+
+    def test_msg_init_to_dict_very_complex(self):
+        @minipb.process_message_fields
+        class TestMessage(minipb.Message):
+            @minipb.process_message_fields
+            class NestedMessage(minipb.Message):
+                str2 = minipb.Field(1, minipb.TYPE_STRING)
+                num2 = minipb.Field(2, minipb.TYPE_UINT)
+
+            number = minipb.Field(1, minipb.TYPE_UINT)
+            string = minipb.Field(2, minipb.TYPE_STRING)
+            nested = minipb.Field(3, NestedMessage, repeated=True)
+
+        raw_obj = self._msg_from_raw_obj_with_nested()
+        test_msg = TestMessage(
+            number=123,
+            string='test',
+            nested=[TestMessage.NestedMessage(**nested_dict) for nested_dict in raw_obj['nested']]
+        )
+        current_dict = test_msg.to_dict()
+        self.assertEqual(current_dict, raw_obj)
+
+    def test_msg_from_dict_to_dict_roundtrip(self):
+        @minipb.process_message_fields
+        class TestMessage(minipb.Message):
+            @minipb.process_message_fields
+            class NestedMessage(minipb.Message):
+                str2 = minipb.Field(1, minipb.TYPE_STRING)
+                num2 = minipb.Field(2, minipb.TYPE_UINT)
+
+            number = minipb.Field(1, minipb.TYPE_UINT)
+            string = minipb.Field(2, minipb.TYPE_STRING)
+            nested = minipb.Field(3, NestedMessage, repeated=True)
+
+
+        raw_obj = self._msg_from_raw_obj_with_nested()
+
+        test_msg = TestMessage.from_dict(raw_obj)
+        test_dict = test_msg.to_dict()
+        self.assertEqual(test_dict, raw_obj)
+
+        test_msg_from_dict_again = TestMessage.from_dict(test_dict)
+        self.assertEqual(test_msg_from_dict_again, test_msg)
+
+        # Confirm sure these are different instances
+        self.assertNotEqual(id(test_msg_from_dict_again), id(test_msg))
+
+        test_dict_rt = test_msg_from_dict_again.to_dict()
+        self.assertEqual(test_dict_rt, raw_obj)
+
+    def test_msg_encode_decode_roundtrip(self):
+        expected_pb = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x72\x69\x6e\x67\x10\xf8\x06\x1a\x13\x0a\x0e\x61\x6e\x6f\x74\x68\x65\x72\x5f\x73\x74\x72\x69\x6e\x67\x10\xb9\x60'
+
+        @minipb.process_message_fields
+        class TestMessage(minipb.Message):
+            @minipb.process_message_fields
+            class NestedMessage(minipb.Message):
+                str2 = minipb.Field(1, minipb.TYPE_STRING)
+                num2 = minipb.Field(2, minipb.TYPE_UINT)
+
+            number = minipb.Field(1, minipb.TYPE_UINT)
+            string = minipb.Field(2, minipb.TYPE_STRING)
+            nested = minipb.Field(3, NestedMessage, repeated=True)
+
+        raw_obj = self._msg_from_raw_obj_with_nested()
+
+        test_msg = TestMessage.from_dict(raw_obj)
+        test_pb = test_msg.encode()
+        self.assertEqual(test_pb, expected_pb)
+
+        decoded_msg = TestMessage.decode(expected_pb)
+        self.assertEqual(decoded_msg, test_msg)
+
+
+    def test_msg_inherited_fields(self):
+        @minipb.process_message_fields
+        class BaseMessage(minipb.Message):
+            zbase_str = minipb.Field(1, minipb.TYPE_STRING)
+            zbase_num = minipb.Field(2, minipb.TYPE_UINT)
+
+        @minipb.process_message_fields
+        class TestMessage(BaseMessage):
+            test_num = minipb.Field(3, minipb.TYPE_UINT)
+            test_str = minipb.Field(4, minipb.TYPE_STRING)
+
+        name_to_fields_map = getattr(TestMessage, minipb._MESSAGE_FIELDS_MAP)
+        self.assertEqual(name_to_fields_map['test_num'].type, minipb.TYPE_UINT)
+
+        expected_field_names = ('zbase_str', 'zbase_num', 'test_num', 'test_str')
+        self.assertEqual(tuple(name_to_fields_map.keys()), expected_field_names)
+
 
 if __name__ == '__main__':
     unittest.main()
