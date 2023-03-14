@@ -8,11 +8,15 @@ Mini Protobuf library in pure Python.
 
 - Pure Python.
 - Feature-rich yet lightweight. Even runs on MicroPython.
-- Supports both struct-like format string and ctypes-like structure representation (i.e. `Structure._field_`) as schema.
+- Supports struct-like format string, ctypes-like structure representation (i.e. `Structure._field_`) and dataclass-like message class as schema.
 - Support schema-less inspection of a given serialized message via `Wire.{encode,decode}_raw` API.
   - Proudly doing this earlier than [protoscope](https://github.com/protocolbuffers/protoscope).
 
 ## Getting started
+
+MiniPB supports 3 different flavors of schema declaration methods: Key-value schema (dict serialization), format string (tuple serialization) and message classes (object serialization).
+
+### Key-value schema
 
 ```python
 import minipb
@@ -32,7 +36,12 @@ encoded_msg = hello_world_msg.encode({
 # Decode a message
 decoded_msg = hello_world_msg.decode(encoded_msg)
 # decoded_msg == {'msg': 'Hello world!'}
+```
 
+### Format string
+
+```python
+import minipb
 
 ### Encode/Decode a message with the Wire object and Format String
 hello_world_msg = minipb.Wire('U')
@@ -44,7 +53,12 @@ encoded_msg = hello_world_msg.encode('Hello world!')
 # Decode a message
 decoded_msg = hello_world_msg.decode(encoded_msg)
 # decoded_msg == ('Hello world!',)
+```
 
+### Message class
+
+```python
+import minipb
 
 ### Encode/Decode a Message with schema defined via Fields
 @minipb.process_message_fields
@@ -68,7 +82,6 @@ decoded_msg_obj = HelloWorldMessage.decode(encoded_msg)
 
 decoded_dict = decoded_msg_obj.to_dict()
 # decoded_dict == {'msg': 'Hello world!'}
-
 ```
 
 Refer to the [Schema Representation][schema] for detailed explanation on schema formats accepted by MiniPB.
@@ -85,7 +98,7 @@ pip install git+https://github.com/dogtopus/minipb
 
 ### MicroPython
 
-**NOTE**: Despite being lightweight compared to official Protobuf, the `minipb` module itself still uses around 15KB of RAM after loaded via `import`. Therefore it is recommended to use MiniPB on MicroPython instances with minimum of 24KB of memory available to the scripts. Instances with at least 48KB of free memory is recommended for more complex program logic.
+**NOTE (Old data but still somewhat relevant)**: Despite being lightweight compared to official Protobuf, the `minipb` module itself still uses around 15KB of RAM after loaded via `import`. Therefore it is recommended to use MiniPB on MicroPython instances with minimum of 24KB of memory available to the scripts. Instances with at least 48KB of free memory is recommended for more complex program logic.
 
 On targets with plenty of RAM, such as Pyboards and the Unix build, installation consists of copying `minipb.py` to the filesystem and installing the `logging` and `bisect` module from [micropython-lib][mpylib]. For targets with restricted RAM there are two options: cross compilation and frozen bytecode. The latter offers the greatest saving. See the [official docs][mpydoc] for further explanation.
 
@@ -114,52 +127,11 @@ mpy-cross -s logging.py -O3 micropython-lib/logging/logging.py -o /your/PYBFLASH
 mpy-cross -s bisect.py -O3 micropython-lib/bisect/bisect.py -o /your/PYBFLASH/bisect.mpy
 ```
 
-## Usage - Format String and Key Value Schema
+## Usage
 
-Format string documentation can be found under the project [Wiki][wiki]. The module's pydoc contains some useful information on the API too.
+Detailed documentation can be found under the project [Wiki][wiki]. The module's pydoc contains some useful information about the API too.
 
 [mpylib]: https://github.com/micropython/micropython-lib
 [wiki]: https://github.com/dogtopus/minipb/wiki
 [schema]: https://github.com/dogtopus/minipb/wiki/Schema-Representations
 [mpydoc]: http://docs.micropython.org/en/latest/reference/packages.html
-
-## Usage - Message class
-Translating a proto into a Message class
-```protobuf
-    message Person {
-      required string name = 1; // *U
-      required int32 id = 2; // *t
-      optional string email = 3; // U
-
-      // enums are not supported natively in minipb. Use enums.IntEnum with a int field instead.
-      enum PhoneType {
-        MOBILE = 0;
-        HOME = 1;
-        WORK = 2;
-      }
-
-      message PhoneNumber { // [
-        required string number = 1; // *U
-        optional PhoneType type = 2 [default = HOME]; // t
-      } // ]
-
-      repeated PhoneNumber phone = 4; // +[*Ut]
-    }
-```
-
-```python
-from minipb import TYPE_STRING, TYPE_INT32, process_message_fields, Message, Field
-
-@process_message_fields
-class Person(Message):
-    name   = Field(1, TYPE_STRING, required=True)
-    id     = Field(2, TYPE_INT, required=True)
-    email  = Field(3, TYPE_STRING)
-
-    @process_message_fields
-    class PhoneNumber(Message):
-        number = Field(1, TYPE_STRING, required=True)
-        type   = Field(2, TYPE_INT)
-
-    phone  = Field(4, PhoneNumber, repeated=True)
-```
