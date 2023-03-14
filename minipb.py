@@ -1282,7 +1282,17 @@ class Message:
 
             setattr(self, current_attr, value)
 
+    def __repr__(self):
+        keys = getattr(self, _MESSAGE_NAME_TO_FIELDS_MAP).keys()
+        return '{0}({1})'.format(
+            type(self).__name__,
+            ', '.join('{0}={1}'.format(key, repr(getattr(self, key))) for key in keys)
+        )
+
     def __eq__(self, other):
+        if other is None:
+            return False
+
         if other.__class__ is not self.__class__:
             raise NotImplementedError('{} != {}'.format(other.__class__, self.__class__))
 

@@ -505,6 +505,51 @@ class TestMiniPB(unittest.TestCase):
         expected_field_names = ('zbase_str', 'zbase_num', 'test_num', 'test_str')
         self.assertEqual(tuple(name_to_fields_map.keys()), expected_field_names)
 
+    def test_msg_skip_fields_simple(self):
+        @minipb.process_message_fields
+        class TestMessage(minipb.Message):
+            arg1 = minipb.Field(2, minipb.TYPE_UINT)
+            arg2 = minipb.Field(3, minipb.TYPE_UINT)
+            arg3 = minipb.Field(10, minipb.TYPE_STRING)
+            arg4 = minipb.Field(20, minipb.TYPE_STRING)
+
+        expected_obj = TestMessage(arg1=1, arg2=2, arg3='test1', arg4='test2')
+        self.assertEqual(expected_obj.encode(), TEST_FIELD_SEEK_SIMPLE)
+
+        decoded_obj = TestMessage.decode(TEST_FIELD_SEEK_SIMPLE)
+        self.assertEqual(decoded_obj, expected_obj)
+
+    def test_msg_skip_fields_complex(self):
+        @minipb.process_message_fields
+        class _Message1(minipb.Message):
+            code = minipb.Field(1, minipb.TYPE_SINT)
+            desc = minipb.Field(10, minipb.TYPE_STRING)
+
+        @minipb.process_message_fields
+        class _Message2(minipb.Message):
+            str_ = minipb.Field(2, minipb.TYPE_STRING)
+
+        @minipb.process_message_fields
+        class TestMessage(minipb.Message):
+            msg1 = minipb.Field(20, _Message1)
+            msg2 = minipb.Field(30, _Message2, repeated=True)
+
+        expected_obj = TestMessage(
+            msg1=_Message1(
+                code=1,
+                desc='hello',
+            ),
+            msg2=(
+                _Message2(str_='str1'),
+                _Message2(str_='str2'),
+            ),
+        )
+
+        self.assertEqual(expected_obj.encode(), TEST_FIELD_SEEK_COMPLEX)
+
+        decoded_obj = TestMessage.decode(TEST_FIELD_SEEK_COMPLEX)
+        self.assertEqual(decoded_obj, expected_obj)
+
 
 if __name__ == '__main__':
     unittest.main()
