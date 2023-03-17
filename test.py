@@ -550,6 +550,49 @@ class TestMiniPB(unittest.TestCase):
         decoded_obj = TestMessage.decode(TEST_FIELD_SEEK_COMPLEX)
         self.assertEqual(decoded_obj, expected_obj)
 
+    def test_ooo_field_numbers(self):
+        self.assertRaises(AssertionError, minipb.Field, minipb.MIN_FIELD_NUMBER - 1, minipb.TYPE_SINT)
+        self.assertRaises(AssertionError, minipb.Field, minipb.MAX_FIELD_NUMBER + 1, minipb.TYPE_SINT)
+
+        self.assertRaises(AssertionError, minipb.Field, minipb.MIN_RESERVED_BY_PROTOBUF_FIELD_NUMBER, minipb.TYPE_SINT)
+        self.assertRaises(AssertionError, minipb.Field, minipb.MIN_RESERVED_BY_PROTOBUF_FIELD_NUMBER + 10, minipb.TYPE_SINT)
+        self.assertRaises(AssertionError, minipb.Field, minipb.MAX_RESERVED_BY_PROTOBUF_FIELD_NUMBER, minipb.TYPE_SINT)
+
+        no_issues_here = minipb.Field(100, minipb.TYPE_BOOL)
+
+    def test_non_consecutive_field_numbers(self):
+        @minipb.process_message_fields
+        class AnotherMessage(minipb.Message):
+            f_varint  = minipb.Field(5  , minipb.TYPE_UINT)
+            f_i64     = minipb.Field(10 , minipb.TYPE_DOUBLE)
+            f_len     = minipb.Field(777, minipb.TYPE_BYTES)
+            f_i32     = minipb.Field(888, minipb.TYPE_FIXED32)
+            f_max     = minipb.Field(minipb.MAX_FIELD_NUMBER, minipb.TYPE_BOOL)
+
+        expected_msg = AnotherMessage(
+            f_varint=12345,
+            f_i64=12.345,
+            f_len=b'\xde\xad\xbe\xef',
+            f_i32=67890,
+            f_max=False
+        )
+
+        decode_raw_objs = [
+            dict(id=5   , wire_type=minipb._WIRE_TYPE_VARINT, data=expected_msg.f_varint),
+            dict(id=10  , wire_type=minipb._WIRE_TYPE_I64,    data=minipb._encode_scalar_to_bytes(minipb.TYPE_DOUBLE, expected_msg.f_i64)),
+            dict(id=777 , wire_type=minipb._WIRE_TYPE_LEN,    data=expected_msg.f_len),
+            dict(id=888 , wire_type=minipb._WIRE_TYPE_I32,    data=minipb._encode_scalar_to_bytes(minipb.TYPE_FIXED32, expected_msg.f_i32)),
+            dict(id=minipb.MAX_FIELD_NUMBER, wire_type=minipb._WIRE_TYPE_VARINT, data=int(expected_msg.f_max)),
+
+            # This field exists but is missing in the schema, should be ignored
+            dict(id=1000, wire_type=minipb._WIRE_TYPE_I32, data=minipb._encode_scalar_to_bytes(minipb.TYPE_FIXED32, expected_msg.f_i32))
+        ]
+        encoded_raw_pb = minipb.encode_raw(decode_raw_objs)
+
+        # Verify that decoding non-consecutive field numbers results in the decoded_msg being equal to the original message
+        decoded_msg = AnotherMessage.decode(encoded_raw_pb)
+        self.assertEqual(decoded_msg, expected_msg)
+
 
 if __name__ == '__main__':
     unittest.main()

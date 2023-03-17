@@ -1008,7 +1008,7 @@ class Wire:
                 nested_msg_as_bytes = field_data.encode()
             else:
                 nested_msg_as_bytes = self._encode_wire(field_data, subcontent).read()
-            field_encoded =_encode_bytes(nested_msg_as_bytes)
+            field_encoded = _encode_bytes(nested_msg_as_bytes)
         # everything else
         else:
             field_encoded = _encode_scalar_to_bytes(field_type, field_data, mask=self._vint_2sc_mask)
@@ -1195,6 +1195,13 @@ _MESSAGE_NAME_TO_FIELDS_MAP = '_minipb_name_to_fields_map'
 _MESSAGE_NUMBER_TO_FIELDS_MAP = '_minipb_number_to_fields_map'
 _MESSAGE_WIRE = '_minipb_wire'
 
+# https://protobuf.dev/programming-guides/proto3/#assigning-field-numbers
+MIN_FIELD_NUMBER = 1
+MAX_FIELD_NUMBER = 2**29 - 1
+
+MIN_RESERVED_BY_PROTOBUF_FIELD_NUMBER = 19000
+MAX_RESERVED_BY_PROTOBUF_FIELD_NUMBER = 19999
+
 class Field:
     """MiniPB Field inspired from dataclasses module
     https://github.com/python/cpython/blob/3.11/Lib/dataclasses.py#L273
@@ -1202,9 +1209,17 @@ class Field:
     __slots__ = ('name', 'number', 'type', 'required', 'repeated', 'repeated_packed')
 
     def __init__(self, number, type_, required=False, repeated=False, repeated_packed=False):
+        assert MIN_FIELD_NUMBER <= number <= MAX_FIELD_NUMBER, \
+            'Field number out of bounds, not between {} and {}'.format(MIN_FIELD_NUMBER, MAX_FIELD_NUMBER)
+
+        assert not (MIN_RESERVED_BY_PROTOBUF_FIELD_NUMBER <= number <= MAX_RESERVED_BY_PROTOBUF_FIELD_NUMBER), \
+            'Field number in Protocol Buffer reserved range of {} to {}'.format(
+            MIN_RESERVED_BY_PROTOBUF_FIELD_NUMBER, MAX_RESERVED_BY_PROTOBUF_FIELD_NUMBER)
+
         assert type_ in TYPES or issubclass(type_, Message)
-        assert sum([required, repeated, repeated_packed]) <= 1
-        self.name = None
+
+        assert sum([required, repeated, repeated_packed]) <= 1, "Can only speciffy 1 of required, repeated or repeated_Packed"
+        self.name = None     # NOTE: Set after the fact by @process_message_fields
         self.number = number
         self.type = type_
 
