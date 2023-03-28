@@ -34,12 +34,14 @@ jobs:
       uses: actions/checkout@v3
     - name: 'Download MicroPython stdlib.'
       run: |
-        git clone https://github.com/micropython/micropython-lib.git && \
+        git clone https://github.com/micropython/micropython-lib.git /tmp/micropython-lib && \
+        pushd /tmp/micropython-lib && \
         git checkout "${MPY_STDLIB_COMMIT}" && \
-        cp micropython-lib/python-stdlib/bisect/bisect.py ./ && \
-        cp micropython-lib/python-stdlib/logging/logging.py ./ && \
-        cp -r python-stdlib/unittest/unittest ./ && \
-        rm -rf micropython-lib
+        popd && \
+        cp /tmp/micropython-lib/python-stdlib/bisect/bisect.py ./ && \
+        cp /tmp/micropython-lib/python-stdlib/logging/logging.py ./ && \
+        cp -r /tmp/micropython-lib/unittest/unittest ./ && \
+        rm -rf /tmp/micropython-lib
     - name: Run test suite
       run: |
         micropython test.py
