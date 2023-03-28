@@ -42,7 +42,7 @@ jobs:
         rm -rf /tmp/micropython-lib
     - name: Run test suite
       run: |
-        micropython test.py
+        micropython-dev test.py
 
   test:
     runs-on: ubuntu-latest
