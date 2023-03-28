@@ -3,7 +3,7 @@ name: Lint and Run Test Suite
 on: [push]
 
 env:
-  MPY_STDLIB_COMMIT: fa13cbbc8b53e2ec6abbb1b0fa33d085582f3c54
+  MPY_STDLIB_COMMIT: f6723531802661e5a1fd3d63d3b7b68c38f40cd2
 
 jobs:
   lint:
@@ -29,15 +29,17 @@ jobs:
       image: docker.io/micropython/unix:v1.19
     steps:
     - name: 'Setup basic environment.'
-      run: apt-get update && apt-get install -y wget git
+      run: apt-get update && apt-get install -y git
     - name: 'Checkout the code'
       uses: actions/checkout@v3
     - name: 'Download MicroPython stdlib.'
       run: |
-        wget "https://raw.githubusercontent.com/micropython/micropython-lib/${MPY_STDLIB_COMMIT}/python-stdlib/bisect/bisect.py" && \
-        wget "https://raw.githubusercontent.com/micropython/micropython-lib/${MPY_STDLIB_COMMIT}/python-stdlib/logging/logging.py" && \
-        mkdir unittest && \
-        wget "https://raw.githubusercontent.com/micropython/micropython-lib/${MPY_STDLIB_COMMIT}/python-stdlib/unittest/unittest/__init__.py" -Ounittest/__init__.py
+        git clone https://github.com/micropython/micropython-lib.git && \
+        git checkout "${MPY_STDLIB_COMMIT}" && \
+        cp micropython-lib/python-stdlib/bisect/bisect.py ./ && \
+        cp micropython-lib/python-stdlib/logging/logging.py ./ && \
+        cp -r python-stdlib/unittest/unittest ./ && \
+        rm -rf micropython-lib
     - name: Run test suite
       run: |
         micropython test.py
