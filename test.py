@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
 import unittest
 import collections
+import sys
 import minipb
+
+
+# MicroPython hack
+_IS_MPY = __import__('sys').implementation.name == 'micropython'
+
+if _IS_MPY:
+    class TestCase(unittest.TestCase):
+        # Redirect assertTupleEqual to assertEqual since that wasn't implemented
+        def assertTupleEqual(self, x, y, msg=""):
+            return self.assertEqual(x, y, msg)
+else:
+    TestCase = unittest.TestCase
+
 
 TEST_RAW_ENCODED = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x72\x69\x6e\x67\x10\xf8\x06\x1a\x13\x0a\x0e\x61\x6e\x6f\x74\x68\x65\x72\x5f\x73\x74\x72\x69\x6e\x67\x10\xb9\x60'
 
@@ -11,7 +25,7 @@ TEST_FIELD_SEEK_SIMPLE = b'\x10\x01\x18\x02R\x05test1\xa2\x01\x05test2'
 
 TEST_FIELD_SEEK_COMPLEX = b'\xa2\x01\t\x08\x02R\x05hello\xf2\x01\x06\x12\x04str1\xf2\x01\x06\x12\x04str2'
 
-class TestMiniPB(unittest.TestCase):
+class TestMiniPB(TestCase):
     # some of the following data were taken from
     # https://developers.google.com/protocol-buffers/docs/encoding
     def test_codec_vint(self):
@@ -595,4 +609,6 @@ class TestMiniPB(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    result = unittest.main()
+    if _IS_MPY:
+        sys.exit(result.failuresNum != 0 or result.errorsNum != 0)
