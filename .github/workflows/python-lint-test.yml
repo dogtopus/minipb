@@ -32,17 +32,20 @@ jobs:
       run: apt-get update && apt-get install -y git
     - name: 'Checkout the code'
       uses: actions/checkout@v3
-    - name: 'Download MicroPython stdlib.'
+    - name: 'Download MicroPython stdlib and create test environment.'
       run: |
+      	mkdir /tmp/testenv && \
+      	cp minipb.py /tmp/testenv/ && \
+      	cp test.py /tmp/testenv/ && \
         git clone https://github.com/micropython/micropython-lib.git /tmp/micropython-lib && \
-        bash -c 'cd /tmp/micropython-lib && git checkout '"${MPY_STDLIB_COMMIT}"'' && \
-        cp /tmp/micropython-lib/python-stdlib/bisect/bisect.py ./ && \
-        cp /tmp/micropython-lib/python-stdlib/logging/logging.py ./ && \
-        cp -r /tmp/micropython-lib/python-stdlib/unittest/unittest ./ && \
-        rm -rf /tmp/micropython-lib
+        cd /tmp/micropython-lib && \
+        git checkout "${MPY_STDLIB_COMMIT}" && \
+        cp python-stdlib/bisect/bisect.py /tmp/testenv && \
+        cp python-stdlib/logging/logging.py /tmp/testenv && \
+        cp -r python-stdlib/unittest/unittest /tmp/testenv
     - name: Run test suite
       run: |
-        micropython-dev test.py
+        cd /tmp/testenv && micropython-dev test.py
 
   test:
     runs-on: ubuntu-latest

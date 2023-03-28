@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import unittest
 import collections
+import sys
 import minipb
 
 
@@ -24,7 +25,7 @@ TEST_FIELD_SEEK_SIMPLE = b'\x10\x01\x18\x02R\x05test1\xa2\x01\x05test2'
 
 TEST_FIELD_SEEK_COMPLEX = b'\xa2\x01\t\x08\x02R\x05hello\xf2\x01\x06\x12\x04str1\xf2\x01\x06\x12\x04str2'
 
-class TestMiniPB(unittest.TestCase):
+class TestMiniPB(TestCase):
     # some of the following data were taken from
     # https://developers.google.com/protocol-buffers/docs/encoding
     def test_codec_vint(self):
@@ -608,4 +609,6 @@ class TestMiniPB(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    result = unittest.main()
+    if _IS_MPY:
+        sys.exit(not (result.failures == 0 and result.errors == 0))
