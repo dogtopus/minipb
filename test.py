@@ -611,4 +611,4 @@ class TestMiniPB(TestCase):
 if __name__ == '__main__':
     result = unittest.main()
     if _IS_MPY:
-        sys.exit(not (result.failures == 0 and result.errors == 0))
+        sys.exit(result.failuresNum != 0 or result.errorsNum != 0)
