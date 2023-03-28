@@ -38,7 +38,7 @@ jobs:
         bash -c 'cd /tmp/micropython-lib && git checkout '"${MPY_STDLIB_COMMIT}"'' && \
         cp /tmp/micropython-lib/python-stdlib/bisect/bisect.py ./ && \
         cp /tmp/micropython-lib/python-stdlib/logging/logging.py ./ && \
-        cp -r /tmp/micropython-lib/unittest/unittest ./ && \
+        cp -r /tmp/micropython-lib/python-stdlib/unittest/unittest ./ && \
         rm -rf /tmp/micropython-lib
     - name: Run test suite
       run: |
