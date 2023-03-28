@@ -35,7 +35,7 @@ jobs:
     - name: 'Download MicroPython stdlib.'
       run: |
         git clone https://github.com/micropython/micropython-lib.git /tmp/micropython-lib && \
-        bash -c 'cd && git checkout '"${MPY_STDLIB_COMMIT}"'' && \
+        bash -c 'cd /tmp/micropython-lib && git checkout '"${MPY_STDLIB_COMMIT}"'' && \
         cp /tmp/micropython-lib/python-stdlib/bisect/bisect.py ./ && \
         cp /tmp/micropython-lib/python-stdlib/logging/logging.py ./ && \
         cp -r /tmp/micropython-lib/unittest/unittest ./ && \
