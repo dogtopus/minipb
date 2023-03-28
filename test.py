@@ -3,6 +3,19 @@ import unittest
 import collections
 import minipb
 
+
+# MicroPython hack
+_IS_MPY = __import__('sys').implementation.name == 'micropython'
+
+if _IS_MPY:
+    class TestCase(unittest.TestCase):
+        # Redirect assertTupleEqual to assertEqual since that wasn't implemented
+        def assertTupleEqual(self, x, y, msg=""):
+            return self.assertEqual(x, y, msg)
+else:
+    TestCase = unittest.TestCase
+
+
 TEST_RAW_ENCODED = b'\x08\x7b\x12\x04\x74\x65\x73\x74\x1a\x0b\x0a\x06\x73\x74\x72\x69\x6e\x67\x10\xf8\x06\x1a\x13\x0a\x0e\x61\x6e\x6f\x74\x68\x65\x72\x5f\x73\x74\x72\x69\x6e\x67\x10\xb9\x60'
 
 TEST_RAW_DECODED = ({'data': 123, 'id': 1, 'wire_type': 0}, {'data': b'test', 'id': 2, 'wire_type': 2}, {'data': b'\n\x06string\x10\xf8\x06', 'id': 3, 'wire_type': 2}, {'data': b'\n\x0eanother_string\x10\xb9`', 'id': 3, 'wire_type': 2})
